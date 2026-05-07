@@ -1,0 +1,12 @@
+model-paddle
+Copyright 2026 Opensoft
+
+This product includes software developed by the PaddlePaddle Authors.
+
+The wheels published by this repository are built from the upstream
+PaddlePaddle source (https://github.com/PaddlePaddle/Paddle), licensed
+under Apache License 2.0. The build patches in this repository
+(scripts/build-paddle-rocm-wheel.sh and patches/) modify Paddle source
+so it compiles for AMD ROCm GPUs that the upstream project does not
+ship pre-built wheels for. All modifications are also licensed under
+Apache License 2.0 (see LICENSE).
