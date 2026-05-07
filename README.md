@@ -116,7 +116,8 @@ model-paddle/
 │   ├── export-paddle-patches.sh          — regenerate patch bundle from prepared source tree
 │   ├── rebuild-and-verify-rocm-wheel.sh  — one-command happy path: detect → build → verify
 │   ├── verify-paddle-rocm-runtime.sh     — pipeline-agnostic Paddle/ROCm probe
-│   └── write-release-manifest.sh         — emit release-manifest.json + SHA256SUMS
+│   ├── write-release-manifest.sh         — emit release-manifest.json + SHA256SUMS
+│   └── cut-release.sh                    — capture verify JSON, build manifest, and gh release create
 └── docs/
     ├── compatibility-matrix.md  — verified / expected / unverified matrix
     ├── patch-inventory.md       — why each local source patch exists

@@ -43,7 +43,36 @@ If you publish wheels for multiple gfx targets against the same Paddle
 filename and bundle them under a single release. Don't cut N parallel
 releases for the same matrix.
 
-## Procedure
+## Procedure (one command)
+
+After a successful `scripts/rebuild-and-verify-rocm-wheel.sh`, cut
+the release:
+
+```bash
+scripts/cut-release.sh
+```
+
+That wrapper:
+
+1. finds the latest `paddlepaddle_dcu-*.whl` in `$PADDLE_WHEELHOUSE`
+2. spins up a throwaway release-verify venv, installs the wheel, and
+   captures `verify-output.json`
+3. refuses to release unless the verifier reports
+   `paddle_rocm_bind_succeeded`
+4. generates `release-manifest.json` + `SHA256SUMS` via
+   `write-release-manifest.sh`
+5. drafts release notes from the verified matrix
+6. computes the canonical tag (`paddle-<tag>-rocm<X.Y>-<gfx>-<pyabi>`)
+7. runs `gh release create` with the wheel and three sidecar artifacts
+
+Use `--dry-run` to generate the artifacts and a draft release-notes
+file under `/tmp/model-paddle-release/` without uploading anything:
+
+```bash
+scripts/cut-release.sh --dry-run
+```
+
+## Manual procedure (if you don't want the wrapper)
 
 ```bash
 # 1. Run the canonical rebuild + verify (sources build-manifest.env,
