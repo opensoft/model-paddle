@@ -116,12 +116,14 @@ jobs:
       - name: Lychee
         uses: lycheeverse/lychee-action@v2
         with:
-          # Don't fail on rate-limited GitHub URLs to our own private repo
-          # (lychee gets 404 on releases that don't exist yet).
+          # Don't fail on private opensoft repos that lychee's token can't see
+          # (the model-paddle repo's own release URLs and any opensoft sibling
+          # repo references like ledgerlinc-model-ocr-pipeline).
           args: >-
             --no-progress
             --max-concurrency 4
             --exclude-path patches
             --exclude '^https://github\.com/opensoft/model-paddle/releases/'
+            --exclude '^https://github\.com/opensoft/ledgerlinc-model-ocr-pipeline'
             './**/*.md'
           fail: true
