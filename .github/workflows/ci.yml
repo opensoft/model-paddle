@@ -1,0 +1,127 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          # SC1090/SC1091: dynamic source paths (build-manifest.env,
+          # local.env) are intentional. SC2155: exit-code-vs-declare
+          # warnings on local var assignments are acceptable in build
+          # scripts.
+          shellcheck -e SC1090,SC1091,SC2155 scripts/*.sh
+
+  manifest:
+    name: build-manifest sourceable
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Source build-manifest.env and assert vars
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source build-manifest.env
+          for v in PADDLE_TAG ROCM_PATH AMDGPU_TARGETS PYTHON_BIN \
+                   PADDLE_HOST_CC PADDLE_HOST_CXX \
+                   PADDLE_BUILD_ROOT PADDLE_WHEELHOUSE PADDLE_BUILD_VENV ; do
+            if [[ -z "${!v:-}" ]]; then
+              printf 'build-manifest.env did not set %s\n' "$v" >&2
+              exit 1
+            fi
+            printf '%s=%s\n' "$v" "${!v}"
+          done
+      - name: Confirm overrides are honored
+        run: |
+          set -euo pipefail
+          export PADDLE_TAG=v9.9.9
+          export AMDGPU_TARGETS=gfx9999
+          export ROCM_PATH=/opt/test-rocm
+          # shellcheck disable=SC1091
+          source build-manifest.env
+          test "$PADDLE_TAG" = "v9.9.9" || { echo "PADDLE_TAG was clobbered"; exit 1; }
+          test "$AMDGPU_TARGETS" = "gfx9999" || { echo "AMDGPU_TARGETS was clobbered"; exit 1; }
+          test "$ROCM_PATH" = "/opt/test-rocm" || { echo "ROCM_PATH was clobbered"; exit 1; }
+          echo "manifest respects all overrides"
+
+  detect-host-runs:
+    name: detect-host.sh runs (ubuntu-latest, no GPU)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run detect-host.sh on a no-GPU runner
+        run: |
+          # On a stock GitHub runner we expect detect-host to exit 1
+          # (no ROCm, no GPU). The point of this job is to confirm the
+          # script doesn't crash and produces useful output.
+          rc=0
+          NO_COLOR=1 ./scripts/detect-host.sh || rc=$?
+          echo "exit code: $rc"
+          # Anything except a hard crash (>=126) is acceptable.
+          if (( rc >= 126 )); then
+            exit "$rc"
+          fi
+
+  patch-applies:
+    name: exported patch applies cleanly to upstream Paddle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve PADDLE_TAG from build-manifest.env
+        id: tag
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source build-manifest.env
+          echo "paddle_tag=$PADDLE_TAG" >>"$GITHUB_OUTPUT"
+      - name: Shallow-clone upstream Paddle at the manifest's tag
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "${{ steps.tag.outputs.paddle_tag }}" \
+            https://github.com/PaddlePaddle/Paddle.git /tmp/paddle-src
+      - name: Try git apply --check on the exported patch
+        run: |
+          set -euo pipefail
+          patch_file="$(ls patches/0001-*.patch | head -1)"
+          if [[ -z "$patch_file" ]]; then
+            echo "no exported patch found under patches/" >&2
+            exit 1
+          fi
+          # --check verifies cleanly applies without writing.
+          # If this fails, regenerate the patch via:
+          #   scripts/build-paddle-rocm-wheel.sh prepare
+          #   scripts/export-paddle-patches.sh
+          git -C /tmp/paddle-src apply --check --3way \
+            "$GITHUB_WORKSPACE/$patch_file"
+
+  markdown-links:
+    name: markdown link check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lychee
+        uses: lycheeverse/lychee-action@v2
+        with:
+          # Don't fail on rate-limited GitHub URLs to our own private repo
+          # (lychee gets 404 on releases that don't exist yet).
+          args: >-
+            --no-progress
+            --max-concurrency 4
+            --exclude-path patches
+            --exclude '^https://github\.com/opensoft/model-paddle/releases/'
+            './**/*.md'
+          fail: true
