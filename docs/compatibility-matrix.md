@@ -7,7 +7,7 @@ expects to work for AMD ROCm Paddle source builds. New rows come from
 
 | Paddle | ROCm | Python | AMD GPU targets | Host model | Status | Release tag | Notes |
 |---|---|---|---|---|---|---|---|
-| `v3.3.1` | `7.2.0` | `3.12` | `gfx1151` | Linux / WSL2 | **verified** | not cut yet | current maintained path |
+| `v3.3.1` | `7.2.0` | `3.12` | `gfx1151` | Linux / WSL2 | **verified** | [`paddle-v3.3.1-rocm7.2-gfx1151-py312`](https://github.com/opensoft/model-paddle/releases/tag/paddle-v3.3.1-rocm7.2-gfx1151-py312) | current maintained path |
 | `v3.3.1` | `7.x` | `3.12` | `gfx1100`, `gfx1101`, `gfx1102` | Linux | expected with overrides | none | not yet rebuilt in this repo |
 | `v3.3.1` | `7.x` | `3.12` | `gfx90a`, `gfx940`, `gfx942` | Linux | expected with overrides | none | server-class cards not yet verified here |
 | `v3.3.1` | `6.x` | `3.11` or `3.12` | mixed | Linux | unverified | none | likely needs version-specific patch changes |
