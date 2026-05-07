@@ -36,7 +36,7 @@ builds), but the Python API surface is identical.
 
 | Status | Hosts | What you should do |
 |---|---|---|
-| **Verified** | `gfx1151` (AMD Radeon 8060S / Strix Halo APUs) on ROCm 7.2.0, Python 3.12, Linux or WSL2 | Copy-paste the Quick start commands as-is. They should work with no overrides. |
+| **Verified** | `gfx1151` (AMD Radeon 8060S / Strix Halo APUs) on ROCm 7.2.0, Python 3.12, Linux or WSL2 | Use the prebuilt wheel — see **[Install (verified hosts)](#install-verified-hosts)** below. No source build needed. |
 | **Expected to work with overrides** | other RDNA3 (`gfx110x` — RX 7900 XT/XTX, W7900) and CDNA2/CDNA3 (`gfx90a` MI200, `gfx940`/`gfx942` MI300) on ROCm 7.x | Run `scripts/detect-host.sh`, then run `scripts/rebuild-and-verify-rocm-wheel.sh` with the env vars detect-host suggests. If the build fails, [open an issue](https://github.com/opensoft/model-paddle/issues/new) with the build log + verifier JSON. If it succeeds, please [report it](./docs/compatibility-matrix.md#reporting-a-successful-build) so we can add a row. |
 | **Likely needs additional patches** | pre-RDNA3 RDNA2 (`gfx103x`) and Vega/MI100 (`gfx9xx`) on ROCm 6.x | Read [`docs/patch-inventory.md`](./docs/patch-inventory.md) first. The v3.3.1 ROCm CMake assumes the older directory layout that this patch set replaces; some patch groups will need version-specific reverts. Expect to write new patches and contribute them back. |
 
@@ -61,6 +61,92 @@ It prints your gfx target, ROCm version, the device files visible to
 this host, the exact override flags to use for the build, a Y/N readout
 for every prerequisite, and a recommended `CMAKE_BUILD_PARALLEL_LEVEL`
 based on your CPU count and RAM.
+
+## Install (verified hosts)
+
+If your hardware matches the **Verified** row above (`gfx1151` / ROCm
+7.2.0 / Python 3.12 / Linux or WSL2), use the prebuilt wheel — no
+source build needed. The four steps below take a couple of minutes
+total. For other GPU/ROCm/Python combos, skip to
+[Quick start (build from source)](#quick-start-build-from-source).
+
+**Step 1 — authenticate to GitHub.** This repo is private, so a direct
+`pip install https://github.com/...` URL will not work without auth.
+Use the GitHub CLI:
+
+```bash
+gh auth status   # if not logged in: `gh auth login`
+```
+
+**Step 2 — download the wheel from the release.**
+
+```bash
+gh release download paddle-v3.3.1-rocm7.2-gfx1151-py312 \
+  --repo opensoft/model-paddle \
+  --pattern 'paddlepaddle_dcu-*.whl' \
+  --dir /tmp
+```
+
+The full release (with `release-manifest.json`, `verify-output.json`,
+and `SHA256SUMS`) is at
+[releases/tag/paddle-v3.3.1-rocm7.2-gfx1151-py312](https://github.com/opensoft/model-paddle/releases/tag/paddle-v3.3.1-rocm7.2-gfx1151-py312).
+To round-trip the checksums:
+
+```bash
+gh release download paddle-v3.3.1-rocm7.2-gfx1151-py312 \
+  --repo opensoft/model-paddle --dir /tmp/paddle-rocm-release
+( cd /tmp/paddle-rocm-release && sha256sum -c SHA256SUMS )
+```
+
+**Step 3 — install into a Python 3.12 venv.**
+
+```bash
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install /tmp/paddlepaddle_dcu-*.whl
+```
+
+> The wheel is **cp312-only** (Python 3.12 ABI). It will not install
+> into a 3.10 / 3.11 venv. If you need a different ABI, rebuild from
+> source: `PYTHON_BIN=python3.11 scripts/rebuild-and-verify-rocm-wheel.sh`.
+
+**Step 4 — set the runtime env vars.** ROCm + Paddle needs these
+exports before `import paddle`, otherwise the import may segfault on
+WSL2 or report no GPU. The bundled
+[`scripts/verify-paddle-rocm-runtime.sh`](./scripts/verify-paddle-rocm-runtime.sh)
+exports them automatically; in your own project, add the equivalent to
+your venv activation or `.envrc`:
+
+```bash
+export ROCM_PATH=/opt/rocm-7.2.0
+export HIP_PATH="$ROCM_PATH"
+export PATH="$ROCM_PATH/bin:$ROCM_PATH/llvm/bin:$PATH"
+export LD_LIBRARY_PATH="$ROCM_PATH/lib:$ROCM_PATH/lib/llvm/lib:${LD_LIBRARY_PATH:-}"
+export LD_PRELOAD="$ROCM_PATH/lib/libhsa-runtime64.so.1${LD_PRELOAD:+:$LD_PRELOAD}"
+# WSL2 only:
+export HSA_ENABLE_DXG_DETECTION=1
+export HSA_ENABLE_SDMA=0
+# Perf knob (recommended):
+export MIOPEN_FIND_MODE=2
+```
+
+**Step 5 — smoke check.** Either run the inline one-liners:
+
+```bash
+python -c "import paddle; print('rocm:', paddle.is_compiled_with_rocm())"   # → rocm: True
+python -c "import paddle; print('devices:', paddle.device.cuda.device_count())"  # → devices: 1+
+python -c "import paddle; paddle.utils.run_check()"   # full Paddle self-test on the GPU
+```
+
+…or run the end-to-end probe (it sets the env vars from Step 4 itself
+and prints structured JSON ending in `state: paddle_rocm_bind_succeeded`
+on success):
+
+```bash
+scripts/verify-paddle-rocm-runtime.sh "$(which python)"
+```
+
+If the probe fails, see
+[`docs/rebuild-rocm-wheel.md` § Troubleshooting](./docs/rebuild-rocm-wheel.md#troubleshooting).
 
 ## Resource budget
 
@@ -149,7 +235,13 @@ For persistent per-host overrides, copy `local.env.sample` to
 `local.env` (gitignored) and edit. The build/verify wrappers source it
 automatically.
 
-## Quick start
+## Quick start (build from source)
+
+This path produces a wheel from source. Use it if your GPU/ROCm/Python
+combination doesn't have a prebuilt release yet (see
+[compatibility matrix](./docs/compatibility-matrix.md)). If your host
+matches the **Verified** row, use the [Install (verified hosts)](#install-verified-hosts)
+path instead — the from-source build takes 1.5–2 hours.
 
 **Step 1 — Run the host self-check.** It exits 0 (ready), 2 (ready with
 warnings), or non-zero (critical fails like missing ROCm). The rebuild
@@ -202,38 +294,17 @@ Full procedure and rebuild contract:
 - [`docs/patch-inventory.md`](./docs/patch-inventory.md)
 - [`docs/release-wheel.md`](./docs/release-wheel.md)
 
-## Using the wheel
+## Using a locally-built wheel
 
-Once the verifier reports `paddle_rocm_bind_succeeded`, the wheel is
-ready for use. In your project's venv:
+Once the verifier reports `paddle_rocm_bind_succeeded`, install the
+wheel into your project's venv from the local cache:
 
 ```bash
-# Public release asset:
-pip install https://github.com/opensoft/model-paddle/releases/download/<tag>/paddlepaddle_dcu-<...>.whl
-
-# Locally built wheel:
 pip install ~/.cache/model-paddle/paddle-rocm/wheelhouse/paddlepaddle_dcu-*.whl
 ```
 
-For a private GitHub repo, use the GitHub CLI with an authenticated
-session or `GH_TOKEN`; direct `pip install https://github.com/...` will
-not automatically use `gh auth`:
-
-```bash
-gh release download <tag> \
-  --repo opensoft/model-paddle \
-  --pattern 'paddlepaddle_dcu-*.whl' \
-  --output /tmp/paddlepaddle_dcu.whl
-pip install /tmp/paddlepaddle_dcu.whl
-```
-
-Smoke check:
-
-```bash
-python -c "import paddle; print('rocm:', paddle.is_compiled_with_rocm())"   # → rocm: True
-python -c "import paddle; print('devices:', paddle.device.cuda.device_count())"  # → devices: 1+
-python -c "import paddle; paddle.utils.run_check()"   # full Paddle self-test on the GPU
-```
+Set the runtime env vars and run the smoke check exactly as in
+[Install (verified hosts)](#install-verified-hosts) Steps 4–5.
 
 If you're using the wheel for OCR (PaddleOCR, PPStructure), the
 companion versions verified together with this build are
@@ -263,8 +334,9 @@ and the schema of `release-manifest.json`.
 
 - v3.3.1 source build for ROCm 7.2 / `gfx1151` / Python 3.12 has been
   verified locally (tensor bind + downstream PPStructureV3 init).
-- No release has been cut yet. First release will publish the verified
-  workstation wheel produced by `build-paddle-rocm-wheel.sh`.
+- First release published:
+  [`paddle-v3.3.1-rocm7.2-gfx1151-py312`](https://github.com/opensoft/model-paddle/releases/tag/paddle-v3.3.1-rocm7.2-gfx1151-py312)
+  — wheel + `verify-output.json` + `release-manifest.json` + `SHA256SUMS`.
 
 ## Contributing
 

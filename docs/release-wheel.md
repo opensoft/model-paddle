@@ -159,11 +159,15 @@ plus the asset URL to detect corruption or accidental re-uploads.
 
 ## Consumer Contract
 
-Downstream consumers install via the GitHub Release asset URL:
+Downstream consumers install via the GitHub Release asset URL — for
+example, the verified `gfx1151` wheel:
 
 ```bash
-pip install https://github.com/opensoft/model-paddle/releases/download/<tag>/paddlepaddle_dcu-<...>.whl
+pip install https://github.com/opensoft/model-paddle/releases/download/paddle-v3.3.1-rocm7.2-gfx1151-py312/paddlepaddle_dcu-3.3.0.dev20260319-cp312-cp312-linux_x86_64.whl
 ```
+
+(Substitute the matching tag and wheel filename for releases on other
+matrices; see [`docs/compatibility-matrix.md`](./compatibility-matrix.md).)
 
 For private-repo access the consumer needs `gh auth` (interactive) or
 a deploy key / `GH_TOKEN` (CI). One-line CI workflow snippet:
