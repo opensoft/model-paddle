@@ -99,15 +99,14 @@ data = {
 out_path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
 PY
 
-{
+(
+  cd "$OUT_DIR"
   printf '%s  %s\n' "$WHEEL_SHA256" "$WHEEL_BASENAME"
-  if [[ -f "$MANIFEST_JSON" ]]; then
-    sha256sum "$MANIFEST_JSON"
-  fi
-  if [[ -f "$VERIFY_OUTPUT_PATH" ]]; then
-    sha256sum "$VERIFY_OUTPUT_PATH"
-  fi
-} >"$SHA_FILE"
+  manifest_basename="$(basename "$MANIFEST_JSON")"
+  verify_basename="$(basename "$VERIFY_OUTPUT_PATH")"
+  [[ -f "$manifest_basename" ]] && sha256sum "$manifest_basename"
+  [[ -f "$verify_basename" ]] && sha256sum "$verify_basename"
+) >"$SHA_FILE"
 
 printf 'wrote %s\n' "$MANIFEST_JSON"
 printf 'wrote %s\n' "$SHA_FILE"
