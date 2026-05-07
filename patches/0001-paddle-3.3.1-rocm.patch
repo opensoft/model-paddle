@@ -1,0 +1,1011 @@
+diff --git a/cmake/external/warpctc.cmake b/cmake/external/warpctc.cmake
+index 17ef70b4a071c9247d7534c12616cc5090bd99d5..acb2de53cdf95e83a8a396b3a0cfbabfb82a19ff 100644
+--- a/cmake/external/warpctc.cmake
++++ b/cmake/external/warpctc.cmake
+@@ -53,7 +53,10 @@ if(WITH_ROCM)
+       patch -p1 <
+       ${PADDLE_SOURCE_DIR}/patches/warpctc/CMakeLists.txt.rocm.patch && patch
+       -p1 < ${PADDLE_SOURCE_DIR}/patches/warpctc/devicetypes.cuh.patch && patch
+-      -p1 < ${PADDLE_SOURCE_DIR}/patches/warpctc/hip.cmake.patch)
++      -p1 < ${PADDLE_SOURCE_DIR}/patches/warpctc/hip.cmake.patch &&
++      ${PYTHON_EXECUTABLE}
++      ${PADDLE_SOURCE_DIR}/patches/ledgerlinc_rocm_patch_warp.py
++      ${SOURCE_DIR}/cmake/hip.cmake)
+ endif()
+ 
+ set(WARPCTC_INCLUDE_DIR
+diff --git a/cmake/external/warprnnt.cmake b/cmake/external/warprnnt.cmake
+index ce4b43343a4e9679e252ea4c7cfe9c3a67c49186..2f19a0abcaa0502704c777098486f2dd4ebf32e2 100644
+--- a/cmake/external/warprnnt.cmake
++++ b/cmake/external/warprnnt.cmake
+@@ -44,7 +44,10 @@ endif()
+ if(WITH_ROCM)
+   set(WARPRNNT_PATCH_ROCM_COMMAND
+       patch -p1 <
+-      ${PADDLE_SOURCE_DIR}/patches/warprnnt/CMakeLists.txt.rocm.patch)
++      ${PADDLE_SOURCE_DIR}/patches/warprnnt/CMakeLists.txt.rocm.patch &&
++      ${PYTHON_EXECUTABLE}
++      ${PADDLE_SOURCE_DIR}/patches/ledgerlinc_rocm_patch_warp.py
++      ${SOURCE_DIR}/cmake/hip.cmake)
+ endif()
+ if(NOT WIN32 AND WITH_GPU)
+   if(${CMAKE_CUDA_COMPILER_VERSION} LESS 12.0 AND ${CMAKE_CXX_COMPILER_VERSION}
+diff --git a/cmake/hip.cmake b/cmake/hip.cmake
+index 5ef94239595379cd261e36e9b0505df497ecd182..62083699ada5d1ea3afaca50e61f0567139867de 100644
+--- a/cmake/hip.cmake
++++ b/cmake/hip.cmake
+@@ -2,28 +2,32 @@ if(NOT WITH_ROCM)
+   return()
+ endif()
+ 
++# LedgerLinc ROCm workstation patch:
++# ROCm 7.x packages on this workstation use a flat ${ROCM_PATH}/include
++# and ${ROCM_PATH}/lib/cmake layout rather than the older ${ROCM_PATH}/hip
++# tree that Paddle v3.3.1 assumes here.
+ if(NOT DEFINED ENV{ROCM_PATH})
+   set(ROCM_PATH
+       "/opt/rocm"
+       CACHE PATH "Path to which ROCm has been installed")
+-  set(HIP_PATH
+-      ${ROCM_PATH}/hip
+-      CACHE PATH "Path to which HIP has been installed")
+-  set(HIP_CLANG_PATH
+-      ${ROCM_PATH}/llvm/bin
+-      CACHE PATH "Path to which clang has been installed")
+ else()
+   set(ROCM_PATH
+       $ENV{ROCM_PATH}
+       CACHE PATH "Path to which ROCm has been installed")
++endif()
++if(EXISTS "${ROCM_PATH}/hip")
+   set(HIP_PATH
+       ${ROCM_PATH}/hip
+       CACHE PATH "Path to which HIP has been installed")
+-  set(HIP_CLANG_PATH
+-      ${ROCM_PATH}/llvm/bin
+-      CACHE PATH "Path to which clang has been installed")
++else()
++  set(HIP_PATH
++      ${ROCM_PATH}
++      CACHE PATH "Path to which HIP has been installed")
+ endif()
+-set(CMAKE_MODULE_PATH "${HIP_PATH}/cmake" ${CMAKE_MODULE_PATH})
++set(HIP_CLANG_PATH
++    ${ROCM_PATH}/llvm/bin
++    CACHE PATH "Path to which clang has been installed")
++set(CMAKE_MODULE_PATH "${HIP_PATH}/cmake" "${ROCM_PATH}/lib/cmake/hip" ${CMAKE_MODULE_PATH})
+ set(CMAKE_PREFIX_PATH "${ROCM_PATH}" ${CMAKE_PREFIX_PATH})
+ 
+ find_package(HIP REQUIRED)
+@@ -65,7 +69,11 @@ macro(find_hip_version hip_header_file)
+     )
+   endif()
+ endmacro()
+-find_hip_version(${HIP_PATH}/include/hip/hip_version.h)
++if(EXISTS "${HIP_PATH}/include/hip/hip_version.h")
++  find_hip_version(${HIP_PATH}/include/hip/hip_version.h)
++else()
++  find_hip_version(${ROCM_PATH}/include/hip/hip_version.h)
++endif()
+ 
+ macro(find_package_and_include PACKAGE_NAME)
+   find_package("${PACKAGE_NAME}" REQUIRED)
+@@ -159,15 +167,21 @@ set(HIP_CLANG_FLAGS ${HIP_CXX_FLAGS})
+ # Ask hcc to generate device code during compilation so we can use
+ # host linker to link.
+ list(APPEND HIP_HCC_FLAGS -fno-gpu-rdc)
+-list(APPEND HIP_HCC_FLAGS --offload-arch=gfx906) # Z100 (ZIFANG)
+-list(APPEND HIP_HCC_FLAGS --offload-arch=gfx926) # K100 (KONGING)
+-list(APPEND HIP_HCC_FLAGS --offload-arch=gfx928) # K100_AI (KONGING_AI)
+-list(APPEND HIP_HCC_FLAGS --offload-arch=gfx936) # BW1000 (BOWEN)
++# LedgerLinc ROCm workstation patch:
++# Let the local build choose ROCm offload targets. The v3.3.1 default only
++# targets older Hygon/Instinct architectures and will not produce code for
++# gfx1151.
++set(PADDLE_ROCM_OFFLOAD_ARCHS "$ENV{AMDGPU_TARGETS}")
++if(NOT PADDLE_ROCM_OFFLOAD_ARCHS)
++  set(PADDLE_ROCM_OFFLOAD_ARCHS "gfx906;gfx926;gfx928;gfx936")
++endif()
++foreach(_PADDLE_ROCM_ARCH IN LISTS PADDLE_ROCM_OFFLOAD_ARCHS)
++  list(APPEND HIP_HCC_FLAGS --offload-arch=${_PADDLE_ROCM_ARCH})
++endforeach()
+ list(APPEND HIP_CLANG_FLAGS -fno-gpu-rdc)
+-list(APPEND HIP_CLANG_FLAGS --offload-arch=gfx906) # Z100 (ZIFANG)
+-list(APPEND HIP_CLANG_FLAGS --offload-arch=gfx926) # K100 (KONGING)
+-list(APPEND HIP_CLANG_FLAGS --offload-arch=gfx928) # K100_AI (KONGING_AI)
+-list(APPEND HIP_CLANG_FLAGS --offload-arch=gfx936) # BW1000 (BOWEN)
++foreach(_PADDLE_ROCM_ARCH IN LISTS PADDLE_ROCM_OFFLOAD_ARCHS)
++  list(APPEND HIP_CLANG_FLAGS --offload-arch=${_PADDLE_ROCM_ARCH})
++endforeach()
+ 
+ if(HIP_COMPILER STREQUAL clang)
+   set(hip_library_name amdhip64)
+diff --git a/paddle/fluid/platform/enforce.h b/paddle/fluid/platform/enforce.h
+index 243f798e3fee7f18a9092efb390c85ce11961f0b..b6093d707b549881fa87398640741d8644321912 100644
+--- a/paddle/fluid/platform/enforce.h
++++ b/paddle/fluid/platform/enforce.h
+@@ -42,9 +42,14 @@ limitations under the License. */
+ #include <hiprand/hiprand.h>
+ #include <miopen/miopen.h>
+ #include <rocblas/rocblas.h>
++// LedgerLinc ROCm platform thrust system error host-include patch:
++// ROCm 7.x thrust system headers pull in rocPRIM device intrinsics. Keep them
++// out of ordinary host-only framework targets.
++#if defined(__HIPCC__) || defined(__HIP__)
+ #include <thrust/system/hip/error.h>
+ #include <thrust/system_error.h>  // NOLINT
+ #endif
++#endif
+ 
+ #include <fstream>
+ #include <iomanip>
+diff --git a/paddle/phi/api/lib/tensor_utils.cc b/paddle/phi/api/lib/tensor_utils.cc
+index aa62b2e7300c2c113ce65d3db6f2e5c6fd7f2a86..579f6c1f35f9063b7cc0129ba8211be954edfc10 100644
+--- a/paddle/phi/api/lib/tensor_utils.cc
++++ b/paddle/phi/api/lib/tensor_utils.cc
+@@ -44,7 +44,9 @@ PADDLE_API phi::Place GetPlaceFromPtr(void* data) {
+ #else
+   hipPointerAttribute_t attr = {};
+   hipError_t status = hipPointerGetAttributes(&attr, data);
+-  if (status == hipSuccess && attr.memoryType == hipMemoryTypeDevice) {
++  // LedgerLinc ROCm hipPointerAttribute_t API patch:
++  // ROCm 7.x exposes pointer memory classification as attr.type.
++  if (status == hipSuccess && attr.type == hipMemoryTypeDevice) {
+     return phi::GPUPlace(attr.device);
+   }
+ #endif
+diff --git a/paddle/phi/backends/dynload/rocm_driver.cc b/paddle/phi/backends/dynload/rocm_driver.cc
+index 7541be3770a30dcafe4f3db5a3e92b10681db225..9e51cdda67ec810db68de39f0bec35398f3726c7 100644
+--- a/paddle/phi/backends/dynload/rocm_driver.cc
++++ b/paddle/phi/backends/dynload/rocm_driver.cc
+@@ -22,6 +22,12 @@ void* rocm_dso_handle = nullptr;
+ 
+ #define DEFINE_WRAP(__name) DynLoad__##__name __name
+ 
++// LedgerLinc ROCm dynload VMM wrapper patch:
++// rocm_driver.h declares VMM and graph wrappers, but Paddle v3.3.1 only
++// instantiates the base driver wrappers here. Linkers that disallow unresolved
++// shared-library symbols then fail on hipMemCreate/hipMemRelease.
++ROCM_ROUTINE_EACH_VVM(DEFINE_WRAP);
++ROCM_ROUTINE_EACH_GPU_GRAPH(DEFINE_WRAP);
+ ROCM_ROUTINE_EACH(DEFINE_WRAP);
+ 
+ bool HasCUDADriver() {
+diff --git a/paddle/phi/backends/dynload/rocsparse.h b/paddle/phi/backends/dynload/rocsparse.h
+index 5245c27b7e448c026929f67b2f2d8bab87fb1da7..81ac8e2437a4d3c8c3277f612f0fc0769aa59ef9 100644
+--- a/paddle/phi/backends/dynload/rocsparse.h
++++ b/paddle/phi/backends/dynload/rocsparse.h
+@@ -15,7 +15,7 @@
+ #pragma once
+ 
+ #include <hip/hip_runtime.h>
+-#include <rocsparse.h>
++#include <rocsparse/rocsparse.h>
+ 
+ #include <mutex>  // NOLINT
+ #include <type_traits>
+diff --git a/paddle/phi/common/complex.h b/paddle/phi/common/complex.h
+index 20fdf1e0d1917d266fbecb9afaf55e1270f8a12f..d1737e0df5fb6bcc4b389bc3be50c9242032c0d3 100644
+--- a/paddle/phi/common/complex.h
++++ b/paddle/phi/common/complex.h
+@@ -28,7 +28,14 @@
+ 
+ #ifdef PADDLE_WITH_HIP
+ #include <hip/hip_complex.h>
++// LedgerLinc ROCm thrust host-include patch:
++// ROCm 7.x thrust includes rocPRIM device intrinsics that cannot be parsed by
++// normal host-only .cc targets. Keep thrust complex conversions for HIP
++// translation units, but avoid exposing rocPRIM to ordinary Paddle host code.
++#if defined(__HIPCC__) || defined(__HIP__)
+ #include <thrust/complex.h>  // NOLINT
++#define PADDLE_WITH_HIP_THRUST_COMPLEX
++#endif
+ #endif
+ 
+ #ifndef PADDLE_WITH_HIP
+@@ -66,7 +73,7 @@ struct PADDLE_ALIGN(sizeof(T) * 2) complex {
+ 
+   HOSTDEVICE constexpr complex(T real, T imag) : real(real), imag(imag) {}
+ 
+-#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
++#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP_THRUST_COMPLEX)
+ 
+   template <typename T1>
+   HOSTDEVICE inline explicit complex(const thrust::complex<T1>& c) {
+@@ -87,6 +94,8 @@ struct PADDLE_ALIGN(sizeof(T) * 2) complex {
+     return thrust::complex<T1>(real, imag);
+   }
+ 
++#endif
++
+ #ifdef PADDLE_WITH_HIP
+   HOSTDEVICE inline explicit operator hipFloatComplex() const {
+     return make_hipFloatComplex(real, imag);
+@@ -95,7 +104,7 @@ struct PADDLE_ALIGN(sizeof(T) * 2) complex {
+   HOSTDEVICE inline explicit operator hipDoubleComplex() const {
+     return make_hipDoubleComplex(real, imag);
+   }
+-#else
++#elif defined(PADDLE_WITH_CUDA)
+   HOSTDEVICE inline explicit operator cuFloatComplex() const {
+     return make_cuFloatComplex(real, imag);
+   }
+@@ -103,7 +112,6 @@ struct PADDLE_ALIGN(sizeof(T) * 2) complex {
+   HOSTDEVICE inline explicit operator cuDoubleComplex() const {
+     return make_cuDoubleComplex(real, imag);
+   }
+-#endif
+ #endif
+ 
+   template <typename T1,
+diff --git a/paddle/phi/core/enforce.h b/paddle/phi/core/enforce.h
+index 024a7de73eb72ecb1d49e8e57712b43843a28c0c..81445e39a9037d47a0df2f66938dc0665d262819 100644
+--- a/paddle/phi/core/enforce.h
++++ b/paddle/phi/core/enforce.h
+@@ -27,9 +27,14 @@ limitations under the License. */
+ #include <hiprand/hiprand.h>
+ #include <miopen/miopen.h>
+ #include <rocblas/rocblas.h>
++// LedgerLinc ROCm thrust system error host-include patch v2:
++// ROCm 7.x thrust system headers pull in rocPRIM device intrinsics. Avoid
++// exposing that path to ordinary host-only .cc targets.
++#if defined(__HIPCC__) || defined(__HIP__)
+ #include <thrust/system/hip/error.h>
+ #include <thrust/system_error.h>  // NOLINT
+ #endif
++#endif
+ 
+ #include <fstream>
+ #include <iomanip>
+diff --git a/paddle/phi/core/memory/allocation/allocator_facade.cc b/paddle/phi/core/memory/allocation/allocator_facade.cc
+index d0c68614853aec8922f152e7b2e6adbf1855e739..d530926d0eb7f57c6d4cfedb342ac3899b73386f 100644
+--- a/paddle/phi/core/memory/allocation/allocator_facade.cc
++++ b/paddle/phi/core/memory/allocation/allocator_facade.cc
+@@ -42,18 +42,16 @@
+ #include "paddle/phi/core/platform/device/gpu/gpu_info.h"
+ 
+ #if defined(PADDLE_WITH_CUDA)
++// LedgerLinc ROCm allocator facade CUDA-header patch:
++// These headers depend on the CUDA driver API and must not be included in
++// ROCm-only builds. HIP uses the ordinary auto-growth allocator path below.
+ #include "paddle/phi/backends/gpu/cuda/cuda_graph.h"
+-#elif defined(PADDLE_WITH_HIP)
+-#include "paddle/phi/backends/gpu/rocm/hip_graph.h"
+-#endif
+-
+ #include "paddle/phi/backends/dynload/cuda_driver.h"
+ #include "paddle/phi/core/memory/allocation/cuda_malloc_async_allocator.h"
+ #include "paddle/phi/core/memory/allocation/cuda_virtual_mem_allocator.h"
+ #include "paddle/phi/core/memory/allocation/virtual_memory_auto_growth_best_fit_allocator.h"
+-
+-#ifdef PADDLE_WITH_HIP
+-#include "paddle/phi/core/memory/allocation/cuda_malloc_async_allocator.h"  // NOLINT
++#elif defined(PADDLE_WITH_HIP)
++#include "paddle/phi/backends/gpu/rocm/hip_graph.h"
+ #endif
+ #endif
+ 
+diff --git a/paddle/phi/kernels/funcs/blas/blas_impl.hip.h b/paddle/phi/kernels/funcs/blas/blas_impl.hip.h
+index 61875681b5b3009e4070aee1410917bbb0cb7c21..086e4cb0ff20cac1ece26214922bf3fc06aacec5 100644
+--- a/paddle/phi/kernels/funcs/blas/blas_impl.hip.h
++++ b/paddle/phi/kernels/funcs/blas/blas_impl.hip.h
+@@ -1038,9 +1038,12 @@ inline void Blas<phi::GPUContext>::GEMM(CBLAS_TRANSPOSE transA,
+           "but received %d",
+           dev_ctx_.GetComputeCapability()));
+ 
+-  thrust::complex<float> c_alpha =
+-      thrust::complex<float>(alpha.real, alpha.imag);
+-  thrust::complex<float> c_beta = thrust::complex<float>(beta.real, beta.imag);
++  // LedgerLinc ROCm hipBLAS complex scalar host patch:
++  // Use ROCm BLAS complex PODs here because this header is included from
++  // ordinary host C++ translation units where ROCm Thrust is intentionally
++  // not exposed.
++  rocblas_float_complex c_alpha{alpha.real, alpha.imag};
++  rocblas_float_complex c_beta{beta.real, beta.imag};
+ 
+   auto &cuda_ctx = const_cast<phi::GPUContext &>(dev_ctx_);
+   CUBlas<phi::complex64>::GEMM_EX(&cuda_ctx,
+@@ -1099,10 +1102,8 @@ inline void Blas<phi::GPUContext>::GEMM(CBLAS_TRANSPOSE transA,
+           "but received %d",
+           dev_ctx_.GetComputeCapability()));
+ 
+-  thrust::complex<double> c_alpha =
+-      thrust::complex<double>(alpha.real, alpha.imag);
+-  thrust::complex<double> c_beta =
+-      thrust::complex<double>(beta.real, beta.imag);
++  rocblas_double_complex c_alpha{alpha.real, alpha.imag};
++  rocblas_double_complex c_beta{beta.real, beta.imag};
+ 
+   auto &cuda_ctx = const_cast<phi::GPUContext &>(dev_ctx_);
+   CUBlas<phi::complex128>::GEMM_EX(&cuda_ctx,
+diff --git a/paddle/phi/kernels/funcs/distribution_helper.h b/paddle/phi/kernels/funcs/distribution_helper.h
+index 088e02b54b63c625f62d61a297369e7b76967c49..d3ce18cd97a93bcf99b6f3da4139289e1ad7b22f 100644
+--- a/paddle/phi/kernels/funcs/distribution_helper.h
++++ b/paddle/phi/kernels/funcs/distribution_helper.h
+@@ -18,7 +18,7 @@ limitations under the License. */
+ #include <curand_kernel.h>
+ #endif
+ #ifdef __HIPCC__
+-#include <hiprand_kernel.h>
++#include <hiprand/hiprand_kernel.h>
+ #endif
+ 
+ #include "paddle/common/hostdevice.h"
+diff --git a/paddle/phi/kernels/funcs/dropout_impl.cu.h b/paddle/phi/kernels/funcs/dropout_impl.cu.h
+index 553e1b07b5f5febc77ca33c6b4f8606982206f35..232955d2c8116c12b8c5d2c04859ef16b6ac4dc6 100644
+--- a/paddle/phi/kernels/funcs/dropout_impl.cu.h
++++ b/paddle/phi/kernels/funcs/dropout_impl.cu.h
+@@ -22,7 +22,7 @@ limitations under the License. */
+ #endif
+ #ifdef PADDLE_WITH_HIP
+ #include <hip/hip_runtime.h>
+-#include <hiprand_kernel.h>
++#include <hiprand/hiprand_kernel.h>
+ #endif
+ 
+ #include "paddle/phi/kernels/funcs/dropout_impl_util.h"
+diff --git a/paddle/phi/kernels/funcs/mode.h b/paddle/phi/kernels/funcs/mode.h
+index 033c1e09807906272430dac8e00b852c6cecec60..084201887d2faac825b509bcd5a038d549c9d13d 100644
+--- a/paddle/phi/kernels/funcs/mode.h
++++ b/paddle/phi/kernels/funcs/mode.h
+@@ -40,6 +40,31 @@
+ #include "paddle/phi/kernels/funcs/eigen/eigen_function.h"
+ #include "paddle/phi/kernels/funcs/math_function.h"
+ 
++#ifdef __HIPCC__
++// LedgerLinc ROCm mode rocPRIM trait patch:
++// ROCm 7.x requires custom radix-sort traits through
++// rocprim::traits::define<T> for Paddle's float16/bfloat16 key sorts.
++namespace rocprim {
++namespace traits {
++template <>
++struct define<phi::float16> {
++  using number_format = rocprim::traits::number_format::values<
++      rocprim::traits::number_format::kind::floating_point_type>;
++  using float_bit_mask =
++      rocprim::traits::float_bit_mask::values<uint16_t, 0x8000, 0x7C00, 0x03FF>;
++};
++
++template <>
++struct define<phi::bfloat16> {
++  using number_format = rocprim::traits::number_format::values<
++      rocprim::traits::number_format::kind::floating_point_type>;
++  using float_bit_mask =
++      rocprim::traits::float_bit_mask::values<uint16_t, 0x8000, 0x7F80, 0x007F>;
++};
++}  // namespace traits
++}  // namespace rocprim
++#endif
++
+ namespace phi {
+ namespace funcs {
+ 
+diff --git a/paddle/phi/kernels/funcs/pooling.cu b/paddle/phi/kernels/funcs/pooling.cu
+index 49900d38efdc09d94401ee7fa1d5f59081e33be4..832e6e6cd4c351e66d37c65d70d4510f58e50f85 100644
+--- a/paddle/phi/kernels/funcs/pooling.cu
++++ b/paddle/phi/kernels/funcs/pooling.cu
+@@ -19,7 +19,7 @@ limitations under the License. */
+ #include <curand_kernel.h>
+ #endif
+ #ifdef __HIPCC__
+-#include <hiprand_kernel.h>
++#include <hiprand/hiprand_kernel.h>
+ #endif
+ 
+ #include "paddle/common/flags.h"
+diff --git a/paddle/phi/kernels/funcs/top_k_function_cuda.h b/paddle/phi/kernels/funcs/top_k_function_cuda.h
+index 9b69b7d0ffb59926c60f6554bc43bc08b57b3719..02b4136a97248239063abdf5bda7c42168d13cda 100644
+--- a/paddle/phi/kernels/funcs/top_k_function_cuda.h
++++ b/paddle/phi/kernels/funcs/top_k_function_cuda.h
+@@ -47,24 +47,27 @@ inline static size_t round_up(size_t n, size_t q) {
+ }
+ 
+ #ifdef __HIPCC__
++// LedgerLinc ROCm top-k rocPRIM trait patch:
++// ROCm 7.x moved custom radix-sort traits from rocprim::detail template
++// specializations to rocprim::traits::define<T>.
+ namespace rocprim {
+-namespace detail {
++namespace traits {
+ template <>
+-struct radix_key_codec_base<phi::float16>
+-    : radix_key_codec_integral<phi::float16, uint16_t> {};
+-
+-template <>
+-struct radix_key_codec_base<phi::bfloat16>
+-    : radix_key_codec_integral<phi::bfloat16, uint16_t> {};
+-
+-#if HIP_VERSION >= 50400000
+-template <>
+-struct float_bit_mask<phi::float16> : float_bit_mask<rocprim::half> {};
++struct define<phi::float16> {
++  using number_format = rocprim::traits::number_format::values<
++      rocprim::traits::number_format::kind::floating_point_type>;
++  using float_bit_mask =
++      rocprim::traits::float_bit_mask::values<uint16_t, 0x8000, 0x7C00, 0x03FF>;
++};
+ 
+ template <>
+-struct float_bit_mask<phi::bfloat16> : float_bit_mask<rocprim::bfloat16> {};
+-#endif
+-}  // namespace detail
++struct define<phi::bfloat16> {
++  using number_format = rocprim::traits::number_format::values<
++      rocprim::traits::number_format::kind::floating_point_type>;
++  using float_bit_mask =
++      rocprim::traits::float_bit_mask::values<uint16_t, 0x8000, 0x7F80, 0x007F>;
++};
++}  // namespace traits
+ }  // namespace rocprim
+ namespace cub = hipcub;
+ #else
+@@ -421,7 +424,9 @@ __global__ void KeMatrixTopK(T* output,
+   const int bid = blockIdx.x;
+   for (int64_t i = bid; i < num; i += grid_dim) {
+     int top_num = k;
+-    __shared__ Pair<T> shared_max[BlockSize / WARP_SIZE];
++    // LedgerLinc ROCm top-k wave64 patch:
++    // HIP wave64 can instantiate this kernel with BlockSize < WARP_SIZE.
++    __shared__ Pair<T> shared_max[(BlockSize + WARP_SIZE - 1) / WARP_SIZE];
+     T* out = output + i * output_stride;
+     int64_t* inds = indices + i * k;
+     Pair<T> topk[MaxLength];
+diff --git a/paddle/phi/kernels/funcs/values_vectors_functor.h b/paddle/phi/kernels/funcs/values_vectors_functor.h
+index b32f559ab8e111b8bf3afbe03f20ba7e71360309..b2a6482f5d7e69d296d3cb2987a053ac75da4eb5 100644
+--- a/paddle/phi/kernels/funcs/values_vectors_functor.h
++++ b/paddle/phi/kernels/funcs/values_vectors_functor.h
+@@ -17,8 +17,15 @@
+ #include "paddle/phi/backends/dynload/cusolver.h"
+ #endif  // PADDLE_WITH_CUDA
+ #ifdef PADDLE_WITH_HIP
+-#include <thrust/device_vector.h>
+ #include "paddle/phi/backends/dynload/rocsolver.h"
++// LedgerLinc ROCm values/vectors Thrust host patch:
++// ROCm 7.x Thrust includes rocPRIM device intrinsics. Keep device_vector
++// usage inside HIP translation units so CPU .cc kernels can include this
++// helper while PADDLE_WITH_HIP is globally enabled.
++#if defined(__HIPCC__) || defined(__HIP__)
++#include <thrust/device_vector.h>
++#define PADDLE_WITH_HIP_DEVICE_VECTOR
++#endif
+ #endif  // PADDLE_WITH_HIP
+ #if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_HIP)
+ #include "paddle/common/errors.h"
+@@ -327,7 +334,7 @@ struct MatrixEighFunctor<CPUContext, T> {
+   }
+ };
+ 
+-#ifdef PADDLE_WITH_HIP
++#if defined(PADDLE_WITH_HIP) && defined(PADDLE_WITH_HIP_DEVICE_VECTOR)
+ #define ROCSOLVER_SYEVJ_BATCHED_ARGTYPES(scalar_t, value_t)            \
+   solverHandle_t handle, rocblas_esort esort, rocblas_evect evect,     \
+       rocblas_fill uplo, int n, scalar_t *const A[], int lda,          \
+diff --git a/paddle/phi/kernels/fusion/gpu/fused_dropout_common.h b/paddle/phi/kernels/fusion/gpu/fused_dropout_common.h
+index 01ec75ea00e64117acc3d2b68d42b1f7689f5487..ff5346060eecfd25198286a31346ed7a629787e7 100644
+--- a/paddle/phi/kernels/fusion/gpu/fused_dropout_common.h
++++ b/paddle/phi/kernels/fusion/gpu/fused_dropout_common.h
+@@ -23,8 +23,8 @@ limitations under the License. */
+ #ifdef PADDLE_WITH_HIP
+ #include <hip/hip_fp16.h>
+ #include <hip/hip_runtime.h>
+-#include <hiprand.h>
+-#include <hiprand_kernel.h>
++#include <hiprand/hiprand.h>
++#include <hiprand/hiprand_kernel.h>
+ #endif
+ 
+ #include "paddle/phi/backends/gpu/gpu_launch_config.h"
+diff --git a/paddle/phi/kernels/fusion/gpu/fused_softmax_mask_upper_triangle_utils.h b/paddle/phi/kernels/fusion/gpu/fused_softmax_mask_upper_triangle_utils.h
+index 32dc8aa07dec411a8c7ee57a9869d17533865214..4e6481bde7fa7378a8e14a7476b66f6f91524d78 100644
+--- a/paddle/phi/kernels/fusion/gpu/fused_softmax_mask_upper_triangle_utils.h
++++ b/paddle/phi/kernels/fusion/gpu/fused_softmax_mask_upper_triangle_utils.h
+@@ -20,7 +20,7 @@
+ #endif
+ #ifdef PADDLE_WITH_HIP
+ #include <hip/hip_runtime.h>
+-#include <hiprand_kernel.h>
++#include <hiprand/hiprand_kernel.h>
+ #endif
+ #include <stdint.h>
+ #include <thrust/device_ptr.h>
+diff --git a/paddle/phi/kernels/fusion/gpu/fused_softmax_mask_utils.h b/paddle/phi/kernels/fusion/gpu/fused_softmax_mask_utils.h
+index 4672c4f3343457f0035014cf5f702b22bcc502a2..ab417e41f457e01f44319164b63516e60ac281a8 100644
+--- a/paddle/phi/kernels/fusion/gpu/fused_softmax_mask_utils.h
++++ b/paddle/phi/kernels/fusion/gpu/fused_softmax_mask_utils.h
+@@ -20,7 +20,7 @@
+ #endif
+ #ifdef PADDLE_WITH_HIP
+ #include <hip/hip_runtime.h>
+-#include <hiprand_kernel.h>
++#include <hiprand/hiprand_kernel.h>
+ #endif
+ 
+ #include "paddle/phi/kernels/funcs/aligned_vector.h"
+diff --git a/paddle/phi/kernels/gpu/argsort_grad_kernel.cu b/paddle/phi/kernels/gpu/argsort_grad_kernel.cu
+index d8b291ce7affa1b88df1a719bd62f2e0036c3742..2c667865fc8d7701dfd26486b5a87fa1048ba78f 100644
+--- a/paddle/phi/kernels/gpu/argsort_grad_kernel.cu
++++ b/paddle/phi/kernels/gpu/argsort_grad_kernel.cu
+@@ -26,16 +26,27 @@
+ #include "paddle/phi/kernels/transpose_kernel.h"
+ 
+ #ifdef __HIPCC__
++// LedgerLinc ROCm argsort rocPRIM trait patch:
++// ROCm 7.x moved custom radix-sort traits from rocprim::detail template
++// specializations to rocprim::traits::define<T>.
+ namespace rocprim {
+-namespace detail {
++namespace traits {
+ template <>
+-struct radix_key_codec_base<phi::float16>
+-    : radix_key_codec_integral<phi::float16, uint16_t> {};
++struct define<phi::float16> {
++  using number_format = rocprim::traits::number_format::values<
++      rocprim::traits::number_format::kind::floating_point_type>;
++  using float_bit_mask =
++      rocprim::traits::float_bit_mask::values<uint16_t, 0x8000, 0x7C00, 0x03FF>;
++};
+ 
+ template <>
+-struct radix_key_codec_base<phi::bfloat16>
+-    : radix_key_codec_integral<phi::bfloat16, uint16_t> {};
+-}  // namespace detail
++struct define<phi::bfloat16> {
++  using number_format = rocprim::traits::number_format::values<
++      rocprim::traits::number_format::kind::floating_point_type>;
++  using float_bit_mask =
++      rocprim::traits::float_bit_mask::values<uint16_t, 0x8000, 0x7F80, 0x007F>;
++};
++}  // namespace traits
+ }  // namespace rocprim
+ #else
+ // set cub base traits in order to handle float16
+diff --git a/paddle/phi/kernels/gpu/argsort_kernel.cu b/paddle/phi/kernels/gpu/argsort_kernel.cu
+index f4bcab09252988f817e7ca70dd13ca8f479a95b0..822c68967ef88bb11fcb83aaa770a16fc778f724 100644
+--- a/paddle/phi/kernels/gpu/argsort_kernel.cu
++++ b/paddle/phi/kernels/gpu/argsort_kernel.cu
+@@ -29,24 +29,27 @@
+ #include "paddle/phi/kernels/transpose_kernel.h"
+ 
+ #ifdef __HIPCC__
++// LedgerLinc ROCm argsort rocPRIM trait patch:
++// ROCm 7.x moved custom radix-sort traits from rocprim::detail template
++// specializations to rocprim::traits::define<T>.
+ namespace rocprim {
+-namespace detail {
++namespace traits {
+ template <>
+-struct radix_key_codec_base<phi::float16>
+-    : radix_key_codec_integral<phi::float16, uint16_t> {};
+-
+-template <>
+-struct radix_key_codec_base<phi::bfloat16>
+-    : radix_key_codec_integral<phi::bfloat16, uint16_t> {};
+-
+-#if HIP_VERSION >= 50400000
+-template <>
+-struct float_bit_mask<phi::float16> : float_bit_mask<rocprim::half> {};
++struct define<phi::float16> {
++  using number_format = rocprim::traits::number_format::values<
++      rocprim::traits::number_format::kind::floating_point_type>;
++  using float_bit_mask =
++      rocprim::traits::float_bit_mask::values<uint16_t, 0x8000, 0x7C00, 0x03FF>;
++};
+ 
+ template <>
+-struct float_bit_mask<phi::bfloat16> : float_bit_mask<rocprim::bfloat16> {};
+-#endif
+-}  // namespace detail
++struct define<phi::bfloat16> {
++  using number_format = rocprim::traits::number_format::values<
++      rocprim::traits::number_format::kind::floating_point_type>;
++  using float_bit_mask =
++      rocprim::traits::float_bit_mask::values<uint16_t, 0x8000, 0x7F80, 0x007F>;
++};
++}  // namespace traits
+ }  // namespace rocprim
+ #else
+ // set cub base traits in order to handle float16
+diff --git a/paddle/phi/kernels/gpu/bernoulli_kernel.cu b/paddle/phi/kernels/gpu/bernoulli_kernel.cu
+index e83cc590a1b310f85ef1eb2340c2d3790d6f1bcc..61e1e1c4f2cf77ceb3f3d7e3753b6f294efe672c 100644
+--- a/paddle/phi/kernels/gpu/bernoulli_kernel.cu
++++ b/paddle/phi/kernels/gpu/bernoulli_kernel.cu
+@@ -18,7 +18,7 @@
+ #include <curand_kernel.h>
+ #endif
+ #ifdef __HIPCC__
+-#include <hiprand_kernel.h>
++#include <hiprand/hiprand_kernel.h>
+ #endif
+ 
+ #include <algorithm>
+diff --git a/paddle/phi/kernels/gpu/binomial_kernel.cu b/paddle/phi/kernels/gpu/binomial_kernel.cu
+index a5547c9f9aa4f9e233075087658aca58d647f069..5bfb5cb864c33c9f67965c0f6f2e6687dad28c4d 100644
+--- a/paddle/phi/kernels/gpu/binomial_kernel.cu
++++ b/paddle/phi/kernels/gpu/binomial_kernel.cu
+@@ -16,7 +16,7 @@ limitations under the License. */
+ #include <curand_kernel.h>
+ #endif
+ #ifdef __HIPCC__
+-#include <hiprand_kernel.h>
++#include <hiprand/hiprand_kernel.h>
+ #endif
+ 
+ #include "paddle/phi/backends/gpu/gpu_context.h"
+diff --git a/paddle/phi/kernels/gpu/class_center_sample_kernel.cu b/paddle/phi/kernels/gpu/class_center_sample_kernel.cu
+index cd04b58917c82fef0ce64b0f2df01d872cba41f2..b3bfe5ff2a416594cc4a6e76ee75e21bd32af088 100644
+--- a/paddle/phi/kernels/gpu/class_center_sample_kernel.cu
++++ b/paddle/phi/kernels/gpu/class_center_sample_kernel.cu
+@@ -13,8 +13,8 @@
+ // limitations under the License.
+ 
+ #ifdef PADDLE_WITH_HIP
+-#include <hiprand.h>
+-#include <hiprand_kernel.h>
++#include <hiprand/hiprand.h>
++#include <hiprand/hiprand_kernel.h>
+ typedef hiprandState curandState;
+ #else
+ #include <curand.h>
+diff --git a/paddle/phi/kernels/gpu/graph_sample_neighbors_kernel.cu b/paddle/phi/kernels/gpu/graph_sample_neighbors_kernel.cu
+index d5d076cb1d4bbf60e5255b44033212cd5222ab55..5d3cfe63bd94270096c58953517577069eea1b62 100644
+--- a/paddle/phi/kernels/gpu/graph_sample_neighbors_kernel.cu
++++ b/paddle/phi/kernels/gpu/graph_sample_neighbors_kernel.cu
+@@ -21,7 +21,7 @@
+ 
+ #ifdef PADDLE_WITH_HIP
+ #include <hip/hip_runtime.h>
+-#include <hiprand_kernel.h>
++#include <hiprand/hiprand_kernel.h>
+ #else
+ #include <cuda_runtime.h>
+ #include <curand_kernel.h>
+diff --git a/paddle/phi/kernels/gpu/poisson_kernel.cu b/paddle/phi/kernels/gpu/poisson_kernel.cu
+index 8f46c1e7070dd2f54a5e03b38ade18045fa035ce..d2715fc8bea01ad2176dae7f9560c30a352f40d1 100644
+--- a/paddle/phi/kernels/gpu/poisson_kernel.cu
++++ b/paddle/phi/kernels/gpu/poisson_kernel.cu
+@@ -16,7 +16,7 @@ limitations under the License. */
+ #include <curand_kernel.h>
+ #endif
+ #ifdef __HIPCC__
+-#include <hiprand_kernel.h>
++#include <hiprand/hiprand_kernel.h>
+ #endif
+ 
+ #include "paddle/phi/backends/gpu/gpu_context.h"
+diff --git a/paddle/phi/kernels/gpu/randperm_kernel.cu b/paddle/phi/kernels/gpu/randperm_kernel.cu
+index 2b01fced3b76c7728b7cfe09050d646862f8d326..433f833b1243418f38e0aa568ac6dda8620fa537 100644
+--- a/paddle/phi/kernels/gpu/randperm_kernel.cu
++++ b/paddle/phi/kernels/gpu/randperm_kernel.cu
+@@ -18,7 +18,7 @@
+ #include <curand_kernel.h>
+ #endif
+ #ifdef __HIPCC__
+-#include <hiprand_kernel.h>
++#include <hiprand/hiprand_kernel.h>
+ #endif
+ 
+ #include "paddle/common/flags.h"
+diff --git a/paddle/phi/kernels/gpu/top_p_sampling_kernel.cu b/paddle/phi/kernels/gpu/top_p_sampling_kernel.cu
+index 5063d0ef63f97a125d2b6423a1646b7a0b1189d8..0e5dca6dc744964457491a736ef32da7ed5fd6c1 100644
+--- a/paddle/phi/kernels/gpu/top_p_sampling_kernel.cu
++++ b/paddle/phi/kernels/gpu/top_p_sampling_kernel.cu
+@@ -17,7 +17,7 @@
+ #ifdef PADDLE_WITH_HIP
+ #include <hip/hip_fp16.h>
+ #include <hip/hip_runtime.h>
+-#include <hiprand_kernel.h>
++#include <hiprand/hiprand_kernel.h>
+ #else
+ #include <cuda_fp16.h>
+ #include <curand_kernel.h>
+diff --git a/paddle/phi/kernels/impl/dirichlet_kernel_impl.h b/paddle/phi/kernels/impl/dirichlet_kernel_impl.h
+index d8e5301b8b64919773c320ecf7ea617bd095c073..de8852bd41cd865316d96263f90833dcc0f6e459 100644
+--- a/paddle/phi/kernels/impl/dirichlet_kernel_impl.h
++++ b/paddle/phi/kernels/impl/dirichlet_kernel_impl.h
+@@ -57,7 +57,7 @@
+ #include <curand_kernel.h>
+ #endif
+ #ifdef PADDLE_WITH_HIP
+-#include <hiprand_kernel.h>
++#include <hiprand/hiprand_kernel.h>
+ #endif
+ 
+ #if defined(PADDLE_WITH_CUDA)
+diff --git a/patches/thrust/thrust/detail/shuffle.inl b/patches/thrust/thrust/detail/shuffle.inl
+index edccc878731ef45efba53dc3b0e89deccf9d745a..6ccacaed3e8431ad872ea532160f3ee11dc84f61 100644
+--- a/patches/thrust/thrust/detail/shuffle.inl
++++ b/patches/thrust/thrust/detail/shuffle.inl
+@@ -19,9 +19,9 @@
+  */
+ 
+ #include <thrust/detail/config.h>
+-#include <thrust/detail/cpp11_required.h>
+-
+-#if THRUST_CPP_DIALECT >= 2011
++// LedgerLinc ROCm Thrust shuffle detail shim patch:
++// ROCm 7.x removed thrust/detail/cpp11_required.h. This source build uses
++// C++17, so keep the implementation unconditional.
+ 
+ #include <thrust/iterator/iterator_traits.h>
+ #include <thrust/shuffle.h>
+@@ -30,9 +30,9 @@
+ 
+ namespace thrust {
+ 
+-__thrust_exec_check_disable__
++THRUST_EXEC_CHECK_DISABLE
+ template <typename DerivedPolicy, typename RandomIterator, typename URBG>
+-__host__ __device__ void shuffle(
++THRUST_HOST_DEVICE void shuffle(
+     const thrust::detail::execution_policy_base<DerivedPolicy>& exec,
+     RandomIterator first, RandomIterator last, URBG&& g) {
+   using thrust::system::detail::generic::shuffle;
+@@ -42,7 +42,7 @@ __host__ __device__ void shuffle(
+ }
+ 
+ template <typename RandomIterator, typename URBG>
+-__host__ __device__ void shuffle(RandomIterator first, RandomIterator last,
++THRUST_HOST_DEVICE void shuffle(RandomIterator first, RandomIterator last,
+                                  URBG&& g) {
+   using thrust::system::detail::generic::select_system;
+ 
+@@ -52,10 +52,10 @@ __host__ __device__ void shuffle(RandomIterator first, RandomIterator last,
+   return thrust::shuffle(select_system(system), first, last, g);
+ }
+ 
+-__thrust_exec_check_disable__
++THRUST_EXEC_CHECK_DISABLE
+ template <typename DerivedPolicy, typename RandomIterator,
+           typename OutputIterator, typename URBG>
+-__host__ __device__ void shuffle_copy(
++THRUST_HOST_DEVICE void shuffle_copy(
+     const thrust::detail::execution_policy_base<DerivedPolicy>& exec,
+     RandomIterator first, RandomIterator last, OutputIterator result,
+     URBG&& g) {
+@@ -66,7 +66,7 @@ __host__ __device__ void shuffle_copy(
+ }
+ 
+ template <typename RandomIterator, typename OutputIterator, typename URBG>
+-__host__ __device__ void shuffle_copy(RandomIterator first, RandomIterator last,
++THRUST_HOST_DEVICE void shuffle_copy(RandomIterator first, RandomIterator last,
+                                       OutputIterator result, URBG&& g) {
+   using thrust::system::detail::generic::select_system;
+ 
+@@ -81,5 +81,3 @@ __host__ __device__ void shuffle_copy(RandomIterator first, RandomIterator last,
+ }
+ 
+ }  // namespace thrust
+-
+-#endif
+diff --git a/patches/thrust/thrust/shuffle.h b/patches/thrust/thrust/shuffle.h
+index 427414df7c11b93f4caff64cd4718534d3716959..c7b8302af4e757a6c15d0dfe0398a4e55a3ab065 100644
+--- a/patches/thrust/thrust/shuffle.h
++++ b/patches/thrust/thrust/shuffle.h
+@@ -35,9 +35,9 @@
+ #pragma once
+ 
+ #include <thrust/detail/config.h>
+-#include <thrust/detail/cpp11_required.h>
+-
+-#if THRUST_CPP_DIALECT >= 2011
++// LedgerLinc ROCm Thrust shuffle shim patch:
++// ROCm 7.x no longer ships thrust/detail/cpp11_required.h. The Paddle shim is
++// compiled as C++17 in this build, so the old C++11 gate is unnecessary.
+ 
+ #include <thrust/detail/config.h>
+ #include <thrust/detail/execution_policy.h>
+@@ -85,7 +85,7 @@ namespace thrust {
+  *  \see \p shuffle_copy
+  */
+ template <typename DerivedPolicy, typename RandomIterator, typename URBG>
+-__host__ __device__ void shuffle(
++THRUST_HOST_DEVICE void shuffle(
+     const thrust::detail::execution_policy_base<DerivedPolicy>& exec,
+     RandomIterator first,
+     RandomIterator last,
+@@ -118,7 +118,7 @@ __host__ __device__ void shuffle(
+  *  \see \p shuffle_copy
+  */
+ template <typename RandomIterator, typename URBG>
+-__host__ __device__ void shuffle(RandomIterator first,
++THRUST_HOST_DEVICE void shuffle(RandomIterator first,
+                                  RandomIterator last,
+                                  URBG&& g);
+ 
+@@ -164,7 +164,7 @@ template <typename DerivedPolicy,
+           typename RandomIterator,
+           typename OutputIterator,
+           typename URBG>
+-__host__ __device__ void shuffle_copy(
++THRUST_HOST_DEVICE void shuffle_copy(
+     const thrust::detail::execution_policy_base<DerivedPolicy>& exec,
+     RandomIterator first,
+     RandomIterator last,
+@@ -205,7 +205,7 @@ __host__ __device__ void shuffle_copy(
+  *  \see \p shuffle
+  */
+ template <typename RandomIterator, typename OutputIterator, typename URBG>
+-__host__ __device__ void shuffle_copy(RandomIterator first,
++THRUST_HOST_DEVICE void shuffle_copy(RandomIterator first,
+                                       RandomIterator last,
+                                       OutputIterator result,
+                                       URBG&& g);
+@@ -213,4 +213,3 @@ __host__ __device__ void shuffle_copy(RandomIterator first,
+ }  // namespace thrust
+ 
+ #include <thrust/detail/shuffle.inl>
+-#endif
+diff --git a/patches/thrust/thrust/system/detail/generic/shuffle.h b/patches/thrust/thrust/system/detail/generic/shuffle.h
+index 3b5feb1c3def824e759bcceb11383d17f40cc4ec..e9d0700ad98ed8a8bb41d11f8049ee8d33d6d75d 100644
+--- a/patches/thrust/thrust/system/detail/generic/shuffle.h
++++ b/patches/thrust/thrust/system/detail/generic/shuffle.h
+@@ -35,9 +35,9 @@
+ #pragma once
+ 
+ #include <thrust/detail/config.h>
+-#include <thrust/detail/cpp11_required.h>
+-
+-#if THRUST_CPP_DIALECT >= 2011
++// LedgerLinc ROCm Thrust generic shuffle shim patch:
++// ROCm 7.x removed thrust/detail/cpp11_required.h. This source build uses
++// C++17, so keep the generic shuffle declaration path unconditional.
+ 
+ #include <thrust/system/detail/generic/tag.h>
+ 
+@@ -47,7 +47,7 @@ namespace detail {
+ namespace generic {
+ 
+ template <typename ExecutionPolicy, typename RandomIterator, typename URBG>
+-__host__ __device__ void shuffle(
++THRUST_HOST_DEVICE void shuffle(
+     thrust::execution_policy<ExecutionPolicy>& exec,
+     RandomIterator first,
+     RandomIterator last,
+@@ -57,7 +57,7 @@ template <typename ExecutionPolicy,
+           typename RandomIterator,
+           typename OutputIterator,
+           typename URBG>
+-__host__ __device__ void shuffle_copy(
++THRUST_HOST_DEVICE void shuffle_copy(
+     thrust::execution_policy<ExecutionPolicy>& exec,
+     RandomIterator first,
+     RandomIterator last,
+@@ -70,5 +70,3 @@ __host__ __device__ void shuffle_copy(
+ }  // namespace thrust
+ 
+ #include <thrust/system/detail/generic/shuffle.inl>
+-
+-#endif
+diff --git a/patches/thrust/thrust/system/detail/generic/shuffle.inl b/patches/thrust/thrust/system/detail/generic/shuffle.inl
+index 6ea047f4dc80fae4c34cb519c7b252ad5e17a053..b413587ed459d801337ba7aa60843330c2e552e5 100644
+--- a/patches/thrust/thrust/system/detail/generic/shuffle.inl
++++ b/patches/thrust/thrust/system/detail/generic/shuffle.inl
+@@ -15,6 +15,9 @@
+  */
+ 
+ #include <thrust/detail/config.h>
++// LedgerLinc ROCm Thrust generic shuffle detail shim patch:
++// ROCm 7.x uses THRUST_EXEC_CHECK_DISABLE and already exposes
++// thrust::iterator_value_t through its versioned namespace.
+ #include <thrust/detail/temporary_array.h>
+ #include <thrust/iterator/discard_iterator.h>
+ #include <thrust/iterator/transform_iterator.h>
+@@ -26,9 +29,6 @@
+ #include <cstdint>
+ 
+ namespace thrust {
+-template <typename Iterator>
+-using iterator_value_t = typename iterator_value<Iterator>::type;
+-
+ namespace system {
+ namespace detail {
+ namespace generic {
+@@ -42,7 +42,7 @@ class feistel_bijection {
+ 
+  public:
+   template <class URBG>
+-  __host__ __device__ feistel_bijection(std::uint64_t m, URBG&& g) {
++  THRUST_HOST_DEVICE feistel_bijection(std::uint64_t m, URBG&& g) {
+     std::uint64_t total_bits = get_cipher_bits(m);
+     // Half bits rounded down
+     left_side_bits = total_bits / 2;
+@@ -56,10 +56,10 @@ class feistel_bijection {
+     }
+   }
+ 
+-  __host__ __device__ std::uint64_t nearest_power_of_two() const {
++  THRUST_HOST_DEVICE std::uint64_t nearest_power_of_two() const {
+     return 1ull << (left_side_bits + right_side_bits);
+   }
+-  __host__ __device__ std::uint64_t operator()(const std::uint64_t val) const {
++  THRUST_HOST_DEVICE std::uint64_t operator()(const std::uint64_t val) const {
+     // Extract the right and left sides of the input
+     auto left = static_cast<std::uint32_t>(val >> right_side_bits);
+     auto right = static_cast<std::uint32_t>(val & right_side_mask);
+@@ -79,7 +79,7 @@ class feistel_bijection {
+ 
+  private:
+   // Find the nearest power of two
+-  __host__ __device__ std::uint64_t get_cipher_bits(std::uint64_t m) {
++  THRUST_HOST_DEVICE std::uint64_t get_cipher_bits(std::uint64_t m) {
+     if (m == 0) return 0;
+     std::uint64_t i = 0;
+     m--;
+@@ -91,7 +91,7 @@ class feistel_bijection {
+   }
+ 
+   // Equivalent to boost::hash_combine
+-  __host__ __device__
++  THRUST_HOST_DEVICE
+   std::size_t hash_combine(std::uint64_t lhs, std::uint64_t rhs) const {
+     lhs ^= rhs + 0x9e3779b9 + (lhs << 6) + (lhs >> 2);
+     return lhs;
+@@ -100,7 +100,7 @@ class feistel_bijection {
+   // Round function, a 'pseudorandom function' who's output is indistinguishable
+   // from random for each key value input. This is not cryptographically secure
+   // but sufficient for generating permutations. 
+-  __host__ __device__ std::uint32_t round_function(std::uint64_t value,
++  THRUST_HOST_DEVICE std::uint32_t round_function(std::uint64_t value,
+                                               const std::uint64_t key_) const {
+     std::uint64_t hash0 = thrust::random::taus88(static_cast<std::uint32_t>(value))();
+     std::uint64_t hash1 = thrust::random::ranlux48(value)();
+@@ -108,7 +108,7 @@ class feistel_bijection {
+       hash_combine(hash_combine(hash0, key_), hash1) & left_side_mask);
+   }
+ 
+-  __host__ __device__ round_state do_round(const round_state state,
++  THRUST_HOST_DEVICE round_state do_round(const round_state state,
+                                            const std::uint64_t round) const {
+     const std::uint32_t new_left = state.right & left_side_mask;
+     const std::uint32_t round_function_res =
+@@ -138,7 +138,7 @@ struct key_flag_tuple {
+ 
+ // scan only flags
+ struct key_flag_scan_op {
+-  __host__ __device__ key_flag_tuple operator()(const key_flag_tuple& a,
++  THRUST_HOST_DEVICE key_flag_tuple operator()(const key_flag_tuple& a,
+                                                 const key_flag_tuple& b) {
+     return {b.key, a.flag + b.flag};
+   }
+@@ -147,10 +147,10 @@ struct key_flag_scan_op {
+ struct construct_key_flag_op {
+   std::uint64_t m;
+   feistel_bijection bijection;
+-  __host__ __device__ construct_key_flag_op(std::uint64_t m,
++  THRUST_HOST_DEVICE construct_key_flag_op(std::uint64_t m,
+                                             feistel_bijection bijection)
+       : m(m), bijection(bijection) {}
+-  __host__ __device__ key_flag_tuple operator()(std::uint64_t idx) {
++  THRUST_HOST_DEVICE key_flag_tuple operator()(std::uint64_t idx) {
+     auto gather_key = bijection(idx);
+     return key_flag_tuple{gather_key, (gather_key < m) ? 1ull : 0ull};
+   }
+@@ -163,8 +163,8 @@ struct write_output_op {
+   OutputIterT out;
+   // flag contains inclusive scan of valid keys
+   // perform gather using valid keys
+-  __thrust_exec_check_disable__
+-  __host__ __device__ std::size_t operator()(key_flag_tuple x) {
++  THRUST_EXEC_CHECK_DISABLE
++  THRUST_HOST_DEVICE std::size_t operator()(key_flag_tuple x) {
+     if (x.key < m) {
+       // -1 because inclusive scan
+       out[x.flag - 1] = in[x.key];
+@@ -174,7 +174,7 @@ struct write_output_op {
+ };
+ 
+ template <typename ExecutionPolicy, typename RandomIterator, typename URBG>
+-__host__ __device__ void shuffle(
++THRUST_HOST_DEVICE void shuffle(
+     thrust::execution_policy<ExecutionPolicy>& exec, RandomIterator first,
+     RandomIterator last, URBG&& g) {
+   using InputType = typename thrust::iterator_value_t<RandomIterator>;
+@@ -187,7 +187,7 @@ __host__ __device__ void shuffle(
+ 
+ template <typename ExecutionPolicy, typename RandomIterator,
+           typename OutputIterator, typename URBG>
+-__host__ __device__ void shuffle_copy(
++THRUST_HOST_DEVICE void shuffle_copy(
+     thrust::execution_policy<ExecutionPolicy>& exec, RandomIterator first,
+     RandomIterator last, OutputIterator result, URBG&& g) {
+   // m is the length of the input

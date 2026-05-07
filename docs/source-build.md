@@ -1,14 +1,18 @@
 # Paddle ROCm Source Build
 
 This document is the source-build path for producing the ROCm-enabled
-PaddlePaddle wheel that the LedgerLinc OCR pipeline consumes for
-`ppstructurev3@gpu` preprocessing on AMD ROCm WSL hosts (currently
-`gfx1151` on ROCm 7.x).
+PaddlePaddle wheel this repository distributes for AMD ROCm hosts
+(currently verified on `gfx1151` with ROCm 7.x).
 
-End-to-end pipeline validation (running PPStructureV3 against an invoice
-and checking the lane stamp on the resulting artifact) lives in the
-LedgerLinc OCR pipeline repo. This repo only owns the wheel build and a
-standalone Paddle/ROCm runtime probe.
+For the shortest rebuild contract, prerequisites, and one-command happy path,
+start with [`rebuild-rocm-wheel.md`](./rebuild-rocm-wheel.md). This document is
+the deeper runbook and patch rationale.
+
+Compatibility tracking lives in
+[`compatibility-matrix.md`](./compatibility-matrix.md).
+
+End-to-end application validation lives in downstream repos. This repo
+owns the wheel build and a standalone Paddle/ROCm runtime probe.
 
 ## Current Status
 
@@ -18,7 +22,7 @@ Status as of 2026-05-06:
 - `scripts/verify-paddle-rocm-runtime.sh <python-bin>` succeeds with
   `state: paddle_rocm_bind_succeeded`, `compiled_with_rocm: true`,
   `device_count: 1`, and a tensor probe on `gpu:0`.
-- The LedgerLinc OCR pipeline repo's preflight succeeds with
+- A validated downstream consumer, the LedgerLinc OCR pipeline, succeeds with
   `state: ppstructurev3_init_succeeded` and selected device `gpu:0` when
   pointed at a venv that has the wheel installed.
 - A temp one-document GPU preprocess run on the pipeline side wrote a
@@ -32,9 +36,11 @@ for proof and development, not yet optimized for benchmark speed.
 
 The workstation ROCm runtime itself is visible:
 
-- ROCm path: `/opt/rocm-7.2.0`
-- WSL GPU device: `/dev/dxg`
-- GPU architecture: `gfx1151`
+- ROCm path: `/opt/rocm-7.2.0` (the verified default; override per host
+  via `ROCM_PATH`)
+- WSL GPU device: `/dev/dxg` (or `/dev/kfd` + `/dev/dri/renderD*` on
+  native Linux)
+- GPU architecture: `gfx1151` (override per host via `AMDGPU_TARGETS`)
 - GPU marketing name: `AMD Radeon(TM) 8060S Graphics`
 
 The package issue is not CUDA versus ROCm naming. Paddle's Python GPU API
@@ -65,6 +71,8 @@ wrapper patches those source-build assumptions for ROCm 7.x and `gfx1151`.
 The wrapper applies the workstation patches every time `prepare`, `configure`,
 or `build` runs, so the external Paddle checkout can be refreshed without
 losing the fixes.
+
+The checked-in exported patch bundle lives under [`../patches/`](../patches/).
 
 Current patch set:
 
@@ -103,39 +111,50 @@ Current patch set:
 
 ## Build Wheel
 
-Run from the repository root on the WSL host, not from `py-bench`:
+Three phases (`prepare`, `configure`, `build`); each implies the
+previous and re-applies the patches against a clean source tree.
 
 ```bash
+# Phase 1 — clone Paddle outside the repo and apply the inline patches.
+# Useful on its own when you want to inspect the patched source tree
+# (for patch-export, code review, or upstreaming) without committing
+# to a CMake configure.
+scripts/build-paddle-rocm-wheel.sh prepare
+
+# Phase 2 — CMake configure. Re-runs prepare if the source tree is
+# missing or has drifted.
 scripts/build-paddle-rocm-wheel.sh configure
+
+# Phase 3 — full build + wheel packaging. Re-runs configure as needed.
+# CMAKE_BUILD_PARALLEL_LEVEL defaults to nproc/2 (min 2). Override on
+# tight-RAM hosts; see rebuild-rocm-wheel.md "Link-time OOM".
+scripts/build-paddle-rocm-wheel.sh build
 ```
 
-If configure succeeds, build the wheel:
+The build runs outside the repository by default at
+`$PADDLE_BUILD_ROOT` (default `~/.cache/ledgerlinc/paddle-rocm/`).
+The resulting wheel is copied to `$PADDLE_WHEELHOUSE` (default
+`$PADDLE_BUILD_ROOT/wheelhouse/`). The script intentionally does not
+modify any consumer's `.venv`.
 
-```bash
-CMAKE_BUILD_PARALLEL_LEVEL=4 scripts/build-paddle-rocm-wheel.sh build
-```
-
-The build runs outside the repository by default:
-
-```text
-~/.cache/ledgerlinc/paddle-rocm/
-```
-
-The resulting wheel is copied to:
-
-```text
-~/.cache/ledgerlinc/paddle-rocm/wheelhouse/
-```
-
-The script intentionally does not modify the project `.venv`.
-
-The successful local wheel currently lands at:
+A successful local wheel looks like:
 
 ```text
 ~/.cache/ledgerlinc/paddle-rocm/wheelhouse/paddlepaddle_dcu-3.3.0.dev20260319-cp312-cp312-linux_x86_64.whl
 ```
 
+### Note on the wheel version string
+
+Paddle v3.3.1 source still self-identifies as `3.3.0.dev<datestamp>`
+until upstream bumps the internal version string; the build does not
+override it. The git tag `v3.3.1` is the canonical Paddle version, not
+the wheel filename. Pin downstream consumers to the GitHub Release
+asset URL, not a PEP-440 version specifier — `dev<datestamp>` drifts
+on every rebuild.
+
 ## Build Variables
+
+The verified defaults are also pinned in [`../build-manifest.env`](../build-manifest.env).
 
 Common overrides:
 
@@ -156,27 +175,48 @@ headers and fail on AMD GPU builtins. The wrapper defaults to a clean
 
 ## Install Into An Isolated Test Venv
 
-After a wheel exists, install it into a separate test venv. The pipeline's
-project `.venv` should never be replaced until the isolated environment
-passes the verifier below.
+There are two install shapes and they are not the same — pick the one
+that matches what you're doing:
+
+### Verifier-only install (minimum to run `verify-paddle-rocm-runtime.sh`)
+
+This is what `scripts/rebuild-and-verify-rocm-wheel.sh` does. It
+installs the wheel and nothing else — sufficient to prove Paddle is
+ROCm-compiled and binds to `gpu:0`.
+
+```bash
+python3.12 -m venv /tmp/paddle-rocm-verify
+/tmp/paddle-rocm-verify/bin/pip install -U pip
+/tmp/paddle-rocm-verify/bin/pip install \
+  ~/.cache/ledgerlinc/paddle-rocm/wheelhouse/paddlepaddle_dcu-*.whl
+scripts/verify-paddle-rocm-runtime.sh /tmp/paddle-rocm-verify/bin/python
+```
+
+### Consumer-shape install (matches what a real downstream project would do)
+
+If you're testing whether the wheel works for PaddleOCR / PPStructure
+specifically, install the verified-together companion versions:
 
 ```bash
 python3.12 -m venv .venv-paddle-rocm
 .venv-paddle-rocm/bin/pip install -U pip
 .venv-paddle-rocm/bin/pip install paddleocr==3.5.0 "paddlex[ocr]==3.5.1"
-.venv-paddle-rocm/bin/pip uninstall -y paddlepaddle
-.venv-paddle-rocm/bin/pip install ~/.cache/ledgerlinc/paddle-rocm/wheelhouse/paddlepaddle-dcu*.whl
-.venv-paddle-rocm/bin/pip install "numpy>=1.24,<2.4" "Pillow>=10.4,<11" "pypdfium2>=4.30,<5"
+# Companion installs of paddleocr/paddlex pull in CPU paddlepaddle as a
+# dep — uninstall it before installing the ROCm wheel:
+.venv-paddle-rocm/bin/pip uninstall -y paddlepaddle paddlepaddle-gpu
+.venv-paddle-rocm/bin/pip install \
+  ~/.cache/ledgerlinc/paddle-rocm/wheelhouse/paddlepaddle_dcu-*.whl
+.venv-paddle-rocm/bin/pip install \
+  "numpy>=1.24,<2.4" "Pillow>=10.4,<11" "pypdfium2>=4.30,<5"
 ```
 
-(Pipeline consumers additionally install the `ledgerlinc-ocr` editable
-package into the same venv; that step lives in the pipeline repo's
-quickstart.)
+The verifier still works against this venv (it only `import paddle`s),
+so this shape is the natural pre-flight for downstream OCR work.
 
 ## Verify Runtime Bind
 
 ```bash
-scripts/verify-paddle-rocm-runtime.sh .venv-paddle-rocm/bin/python
+scripts/verify-paddle-rocm-runtime.sh <python-bin>
 ```
 
 Expected successful state:
@@ -185,10 +225,16 @@ Expected successful state:
 paddle_rocm_bind_succeeded
 ```
 
-The verifier is intentionally pipeline-agnostic: it confirms only that
+The verifier is deliberately consumer-agnostic: it confirms only that
 Paddle is ROCm-compiled, sees a GPU device, and can run a tensor on
-`gpu:0`. End-to-end PPStructureV3 / pipeline validation is the pipeline
-repo's responsibility.
+`gpu:0`. PPStructureV3 / PaddleOCR / pipeline-level validation is the
+downstream consumer's responsibility.
+
+## Release Handoff
+
+After a successful rebuild and verifier pass, follow
+[`release-wheel.md`](./release-wheel.md) to package the wheel, capture
+`verify-output.json`, and upload the release assets.
 
 ## Container Boundary
 
