@@ -5,7 +5,7 @@ set -Eeuo pipefail
 # can bind to gpu:0 on the current workstation.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PYTHON_BIN="${PYTHON_BIN:-${1:-$ROOT_DIR/.venv-paddle-rocm/bin/python}}"
+PYTHON_BIN="${1:-${PYTHON_BIN:-$ROOT_DIR/.venv-paddle-rocm/bin/python}}"
 ROCM_PATH_VALUE="${ROCM_PATH:-/opt/rocm-7.2.0}"
 
 if [[ ! -x "$PYTHON_BIN" ]]; then
