@@ -60,7 +60,9 @@ The Paddle v3.3.1 source does contain a ROCm build switch:
 - `WITH_GPU=OFF`
 
 `WITH_GPU` is the CUDA path and Paddle rejects enabling CUDA and ROCm together.
-With `WITH_ROCM=ON`, Paddle names the Python wheel `paddlepaddle-dcu`.
+With `WITH_ROCM=ON`, Paddle names the Python distribution
+`paddlepaddle-dcu`. The built wheel filename uses the normal Python
+wheel normalization, so the file starts with `paddlepaddle_dcu-`.
 
 The v3.3.1 ROCm CMake also assumes an older ROCm layout and hard-codes older
 offload targets (`gfx906`, `gfx926`, `gfx928`, `gfx936`). The local build
@@ -132,7 +134,7 @@ scripts/build-paddle-rocm-wheel.sh build
 ```
 
 The build runs outside the repository by default at
-`$PADDLE_BUILD_ROOT` (default `~/.cache/ledgerlinc/paddle-rocm/`).
+`$PADDLE_BUILD_ROOT` (default `~/.cache/model-paddle/paddle-rocm/`).
 The resulting wheel is copied to `$PADDLE_WHEELHOUSE` (default
 `$PADDLE_BUILD_ROOT/wheelhouse/`). The script intentionally does not
 modify any consumer's `.venv`.
@@ -140,7 +142,7 @@ modify any consumer's `.venv`.
 A successful local wheel looks like:
 
 ```text
-~/.cache/ledgerlinc/paddle-rocm/wheelhouse/paddlepaddle_dcu-3.3.0.dev20260319-cp312-cp312-linux_x86_64.whl
+~/.cache/model-paddle/paddle-rocm/wheelhouse/paddlepaddle_dcu-3.3.0.dev20260319-cp312-cp312-linux_x86_64.whl
 ```
 
 ### Note on the wheel version string
@@ -164,6 +166,7 @@ Common overrides:
 | `ROCM_PATH` | `/opt/rocm-7.2.0` | ROCm install root. |
 | `AMDGPU_TARGETS` | `gfx1151` | HIP offload architecture list. |
 | `PYTHON_BIN` | `python3.12` | Python ABI used for the wheel. |
+| `PY_VERSION` | `3.12` | CMake `PY_VERSION`; keep in sync with `PYTHON_BIN`. |
 | `PADDLE_HOST_CC` | `$ROCM_PATH/llvm/bin/amdclang` | Host C compiler. Required because ROCm headers can enter normal Paddle C++ translation units. |
 | `PADDLE_HOST_CXX` | `$ROCM_PATH/llvm/bin/amdclang++` | Host C++ compiler. |
 | `CMAKE_BUILD_PARALLEL_LEVEL` | half of `nproc`, minimum 2 | Build parallelism. |
@@ -171,7 +174,8 @@ Common overrides:
 Do not use the system GCC build directory for ROCm. GCC can configure the
 top-level project, but normal Paddle C++ files may include ROCm `rocprim`
 headers and fail on AMD GPU builtins. The wrapper defaults to a clean
-`build-v3.3.1-rocm-amdclang` directory for this reason.
+build directory derived from the active `PADDLE_TAG` and `PY_VERSION`
+(for example `build-v3.3.1-py312-rocm-amdclang`) for this reason.
 
 ## Install Into An Isolated Test Venv
 
@@ -188,7 +192,7 @@ ROCm-compiled and binds to `gpu:0`.
 python3.12 -m venv /tmp/paddle-rocm-verify
 /tmp/paddle-rocm-verify/bin/pip install -U pip
 /tmp/paddle-rocm-verify/bin/pip install \
-  ~/.cache/ledgerlinc/paddle-rocm/wheelhouse/paddlepaddle_dcu-*.whl
+  ~/.cache/model-paddle/paddle-rocm/wheelhouse/paddlepaddle_dcu-*.whl
 scripts/verify-paddle-rocm-runtime.sh /tmp/paddle-rocm-verify/bin/python
 ```
 
@@ -205,7 +209,7 @@ python3.12 -m venv .venv-paddle-rocm
 # dep — uninstall it before installing the ROCm wheel:
 .venv-paddle-rocm/bin/pip uninstall -y paddlepaddle paddlepaddle-gpu
 .venv-paddle-rocm/bin/pip install \
-  ~/.cache/ledgerlinc/paddle-rocm/wheelhouse/paddlepaddle_dcu-*.whl
+  ~/.cache/model-paddle/paddle-rocm/wheelhouse/paddlepaddle_dcu-*.whl
 .venv-paddle-rocm/bin/pip install \
   "numpy>=1.24,<2.4" "Pillow>=10.4,<11" "pypdfium2>=4.30,<5"
 ```

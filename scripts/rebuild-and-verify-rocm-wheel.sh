@@ -56,7 +56,7 @@ log "running configure"
 log "running build"
 "$ROOT_DIR/scripts/build-paddle-rocm-wheel.sh" build
 
-WHEELHOUSE="${PADDLE_WHEELHOUSE:-$HOME/.cache/ledgerlinc/paddle-rocm/wheelhouse}"
+WHEELHOUSE="${PADDLE_WHEELHOUSE:-$HOME/.cache/model-paddle/paddle-rocm/wheelhouse}"
 WHEEL_PATH="$(find "$WHEELHOUSE" -maxdepth 1 -type f -name 'paddlepaddle_dcu-*.whl' | sort | tail -n 1)"
 if [[ -z "$WHEEL_PATH" ]]; then
   printf 'no wheel found in %s\n' "$WHEELHOUSE" >&2

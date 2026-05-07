@@ -29,6 +29,7 @@ Required commands:
 - `git`
 - `python3.12`
 - `cmake`
+- `rg` / `ripgrep`
 - `pip` (ships with the Python interpreter)
 - `bash`
 - ROCm LLVM toolchain at `$ROCM_PATH/llvm/bin/amdclang` and
@@ -97,7 +98,7 @@ scripts/build-paddle-rocm-wheel.sh build
 python3.12 -m venv /tmp/paddle-rocm-test
 /tmp/paddle-rocm-test/bin/pip install -U pip
 /tmp/paddle-rocm-test/bin/pip install \
-  "$HOME/.cache/ledgerlinc/paddle-rocm/wheelhouse"/paddlepaddle_dcu-*.whl
+  "$HOME/.cache/model-paddle/paddle-rocm/wheelhouse"/paddlepaddle_dcu-*.whl
 scripts/verify-paddle-rocm-runtime.sh /tmp/paddle-rocm-test/bin/python
 ```
 
@@ -107,7 +108,7 @@ The rebuild is considered successful only if all of these hold:
 
 1. The build script exits `0`.
 2. A `paddlepaddle_dcu-*.whl` is present in
-   `$PADDLE_WHEELHOUSE` (default `~/.cache/ledgerlinc/paddle-rocm/wheelhouse/`).
+   `$PADDLE_WHEELHOUSE` (default `~/.cache/model-paddle/paddle-rocm/wheelhouse/`).
 3. `verify-paddle-rocm-runtime.sh` emits:
    - `"state": "paddle_rocm_bind_succeeded"`
    - `"compiled_with_rocm": true`
@@ -121,13 +122,13 @@ Default external build root (override via `PADDLE_BUILD_ROOT` in
 `local.env`):
 
 ```text
-~/.cache/ledgerlinc/paddle-rocm/
+~/.cache/model-paddle/paddle-rocm/
 ```
 
 Default wheelhouse:
 
 ```text
-~/.cache/ledgerlinc/paddle-rocm/wheelhouse/
+~/.cache/model-paddle/paddle-rocm/wheelhouse/
 ```
 
 This repo intentionally does not build into the repository tree and
@@ -138,7 +139,7 @@ does not modify any consumer's `.venv`.
 To invalidate everything:
 
 ```bash
-rm -rf ~/.cache/ledgerlinc/paddle-rocm
+rm -rf ~/.cache/model-paddle/paddle-rocm
 scripts/rebuild-and-verify-rocm-wheel.sh
 ```
 
@@ -148,6 +149,7 @@ Use a clean rebuild when you change:
 - `ROCM_PATH` (different ROCm version)
 - `AMDGPU_TARGETS` (different gfx target)
 - `PYTHON_BIN`
+- `PY_VERSION`
 - patch logic in the build script
 
 ## Troubleshooting
@@ -271,7 +273,7 @@ wheel:
 
 ```bash
 pip uninstall -y paddlepaddle paddlepaddle-gpu
-pip install ~/.cache/ledgerlinc/paddle-rocm/wheelhouse/paddlepaddle_dcu-*.whl
+pip install ~/.cache/model-paddle/paddle-rocm/wheelhouse/paddlepaddle_dcu-*.whl
 ```
 
 ### Wheel filename has version `3.3.0.dev<datestamp>` even though we built `v3.3.1`

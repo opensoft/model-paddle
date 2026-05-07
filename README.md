@@ -70,7 +70,7 @@ The build is a full from-source compilation of Paddle. Plan for it.
 |---|---|---|
 | Wall-clock time | ~1.5–2 hours | First-time configure + full build + wheel packaging. |
 | RAM (peak) | ~14–18 GB at the link step | `libpaddle.so` link is the largest single moment; multi-job link will OOM on low-RAM hosts. |
-| Disk (cache) | ~12 GB | Paddle source clone + CMake build dir + wheelhouse — all under `~/.cache/ledgerlinc/paddle-rocm/`. |
+| Disk (cache) | ~12 GB | Paddle source clone + CMake build dir + wheelhouse — all under `~/.cache/model-paddle/paddle-rocm/`. |
 | Network | ~3 GB | Paddle clone + vendored deps + Python build wheels on the first run. |
 
 Cap `CMAKE_BUILD_PARALLEL_LEVEL` at roughly `RAM_GB / 2` (or use what
@@ -168,7 +168,7 @@ scripts/rebuild-and-verify-rocm-wheel.sh
 ```
 
 Expected terminal state: `paddle_rocm_bind_succeeded`. The wheel lands
-in `~/.cache/ledgerlinc/paddle-rocm/wheelhouse/`.
+in `~/.cache/model-paddle/paddle-rocm/wheelhouse/`.
 
 **Manual phase split** (if you want to inspect each step):
 
@@ -190,7 +190,7 @@ Then verify against any Python venv that has the wheel installed:
 python3.12 -m venv /tmp/paddle-rocm-test
 /tmp/paddle-rocm-test/bin/pip install -U pip
 /tmp/paddle-rocm-test/bin/pip install \
-  ~/.cache/ledgerlinc/paddle-rocm/wheelhouse/paddlepaddle_dcu-*.whl
+  ~/.cache/model-paddle/paddle-rocm/wheelhouse/paddlepaddle_dcu-*.whl
 scripts/verify-paddle-rocm-runtime.sh /tmp/paddle-rocm-test/bin/python
 ```
 
@@ -208,9 +208,23 @@ Once the verifier reports `paddle_rocm_bind_succeeded`, the wheel is
 ready for use. In your project's venv:
 
 ```bash
+# Public release asset:
 pip install https://github.com/opensoft/model-paddle/releases/download/<tag>/paddlepaddle_dcu-<...>.whl
-# or, for a locally-built wheel:
-# pip install ~/.cache/ledgerlinc/paddle-rocm/wheelhouse/paddlepaddle_dcu-*.whl
+
+# Locally built wheel:
+pip install ~/.cache/model-paddle/paddle-rocm/wheelhouse/paddlepaddle_dcu-*.whl
+```
+
+For a private GitHub repo, use the GitHub CLI with an authenticated
+session or `GH_TOKEN`; direct `pip install https://github.com/...` will
+not automatically use `gh auth`:
+
+```bash
+gh release download <tag> \
+  --repo opensoft/model-paddle \
+  --pattern 'paddlepaddle_dcu-*.whl' \
+  --output /tmp/paddlepaddle_dcu.whl
+pip install /tmp/paddlepaddle_dcu.whl
 ```
 
 Smoke check:

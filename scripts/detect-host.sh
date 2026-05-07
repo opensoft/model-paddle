@@ -317,6 +317,7 @@ check_cmd() {
 check_cmd python3.12 required "verified ABI"
 check_cmd git        required
 check_cmd cmake      required
+check_cmd rg         required "used by the build wrapper to inspect CMake targets"
 check_cmd ninja      optional "speeds up the build"
 check_cmd ccache     optional "speeds up rebuilds"
 

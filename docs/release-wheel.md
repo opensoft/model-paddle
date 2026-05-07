@@ -90,7 +90,7 @@ VERIFY_OUTPUT_PATH=/tmp/model-paddle-release/verify-output.json \
   scripts/write-release-manifest.sh /tmp/model-paddle-release
 
 # 4. Locate the wheel.
-WHEEL_PATH="$(find "$HOME/.cache/ledgerlinc/paddle-rocm/wheelhouse" \
+WHEEL_PATH="$(find "$HOME/.cache/model-paddle/paddle-rocm/wheelhouse" \
   -maxdepth 1 -type f -name 'paddlepaddle_dcu-*.whl' | sort | tail -1)"
 
 # 5. Cut the GitHub Release.

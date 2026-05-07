@@ -52,7 +52,7 @@ if [[ -f "$MANIFEST_FILE" ]]; then
   source "$MANIFEST_FILE"
 fi
 
-WHEELHOUSE="${PADDLE_WHEELHOUSE:-$HOME/.cache/ledgerlinc/paddle-rocm/wheelhouse}"
+WHEELHOUSE="${PADDLE_WHEELHOUSE:-$HOME/.cache/model-paddle/paddle-rocm/wheelhouse}"
 PYTHON_BIN="${PYTHON_BIN:-python3.12}"
 ROCM_PATH_VALUE="${ROCM_PATH:-/opt/rocm-7.2.0}"
 PADDLE_TAG_VALUE="${PADDLE_TAG:-v3.3.1}"

@@ -14,7 +14,7 @@ if [[ -f "$MANIFEST_FILE" ]]; then
   source "$MANIFEST_FILE"
 fi
 
-BUILD_ROOT="${PADDLE_BUILD_ROOT:-$HOME/.cache/ledgerlinc/paddle-rocm}"
+BUILD_ROOT="${PADDLE_BUILD_ROOT:-$HOME/.cache/model-paddle/paddle-rocm}"
 SRC_DIR="${PADDLE_SRC_DIR:-$BUILD_ROOT/Paddle}"
 WHEELHOUSE="${PADDLE_WHEELHOUSE:-$BUILD_ROOT/wheelhouse}"
 ROCM_PATH_VALUE="${ROCM_PATH:-/opt/rocm-7.2.0}"

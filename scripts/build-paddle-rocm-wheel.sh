@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Build a ROCm-enabled PaddlePaddle wheel for the LedgerLinc workstation path.
+# Build a ROCm-enabled PaddlePaddle wheel for the model-paddle ROCm path.
 #
 # This intentionally builds outside the repository and never modifies the
 # project .venv. Defaults are tuned for the current WSL ROCm workstation:
@@ -24,15 +24,18 @@ if [[ -f "$MANIFEST_FILE" ]]; then
   source "$MANIFEST_FILE"
 fi
 
-BUILD_ROOT="${PADDLE_BUILD_ROOT:-$HOME/.cache/ledgerlinc/paddle-rocm}"
-SRC_DIR="${PADDLE_SRC_DIR:-$BUILD_ROOT/Paddle}"
-BUILD_DIR="${PADDLE_CMAKE_BUILD_DIR:-$BUILD_ROOT/build-v3.3.1-rocm-amdclang}"
-WHEELHOUSE="${PADDLE_WHEELHOUSE:-$BUILD_ROOT/wheelhouse}"
-BUILD_VENV="${PADDLE_BUILD_VENV:-$BUILD_ROOT/.venv-build}"
 PADDLE_TAG="${PADDLE_TAG:-v3.3.1}"
 ROCM_PATH_VALUE="${ROCM_PATH:-/opt/rocm-7.2.0}"
 AMDGPU_TARGETS_VALUE="${AMDGPU_TARGETS:-gfx1151}"
 PYTHON_BIN_VALUE="${PYTHON_BIN:-python3.12}"
+PY_VERSION_VALUE="${PY_VERSION:-3.12}"
+PADDLE_TAG_SLUG="${PADDLE_TAG//\//_}"
+PY_ABI_SLUG="${PY_VERSION_VALUE//./}"
+BUILD_ROOT="${PADDLE_BUILD_ROOT:-$HOME/.cache/model-paddle/paddle-rocm}"
+SRC_DIR="${PADDLE_SRC_DIR:-$BUILD_ROOT/Paddle}"
+BUILD_DIR="${PADDLE_CMAKE_BUILD_DIR:-$BUILD_ROOT/build-${PADDLE_TAG_SLUG}-py${PY_ABI_SLUG}-rocm-amdclang}"
+WHEELHOUSE="${PADDLE_WHEELHOUSE:-$BUILD_ROOT/wheelhouse}"
+BUILD_VENV="${PADDLE_BUILD_VENV:-$BUILD_ROOT/.venv-build}"
 HOST_CC_VALUE="${PADDLE_HOST_CC:-$ROCM_PATH_VALUE/llvm/bin/amdclang}"
 HOST_CXX_VALUE="${PADDLE_HOST_CXX:-$ROCM_PATH_VALUE/llvm/bin/amdclang++}"
 BUILD_JOBS="${CMAKE_BUILD_PARALLEL_LEVEL:-}"
@@ -43,11 +46,12 @@ usage() {
 Usage: scripts/build-paddle-rocm-wheel.sh [prepare|configure|build]
 
 Environment overrides:
-  PADDLE_BUILD_ROOT       External working root. Default: ~/.cache/ledgerlinc/paddle-rocm
+  PADDLE_BUILD_ROOT       External working root. Default: ~/.cache/model-paddle/paddle-rocm
   PADDLE_TAG              Paddle tag to build. Default: v3.3.1
   ROCM_PATH               ROCm root. Default: /opt/rocm-7.2.0
   AMDGPU_TARGETS          ROCm offload targets. Default: gfx1151
   PYTHON_BIN              Python used for the wheel. Default: python3.12
+  PY_VERSION              CMake Python ABI version. Default: 3.12
   PADDLE_HOST_CC          Host C compiler. Default: $ROCM_PATH/llvm/bin/amdclang
   PADDLE_HOST_CXX         Host C++ compiler. Default: $ROCM_PATH/llvm/bin/amdclang++
   CMAKE_BUILD_PARALLEL_LEVEL
@@ -1300,7 +1304,7 @@ PY
     -DWITH_MKL=ON \
     -DWITH_AVX=ON \
     -DWITH_PYTHON=ON \
-    -DPY_VERSION=3.12 \
+    -DPY_VERSION="$PY_VERSION_VALUE" \
     -DPYTHON_EXECUTABLE="$py" \
     -DPYTHON_INCLUDE_DIR="$include_dir" \
     -DPYTHON_LIBRARY="$library_path" \
@@ -1318,7 +1322,7 @@ build_wheel() {
   fi
   log "building Paddle wheel target with $BUILD_JOBS jobs"
   generate_paddle_phi_ops_map
-  local targets_file="$BUILD_DIR/.ledgerlinc-cmake-targets.txt"
+  local targets_file="$BUILD_DIR/.model-paddle-cmake-targets.txt"
   cmake --build "$BUILD_DIR" --target help >"$targets_file"
   if rg -q '(^|[[:space:]])paddle_copy($|[[:space:]])' "$targets_file"; then
     cmake --build "$BUILD_DIR" --target paddle_copy --parallel "$BUILD_JOBS"
