@@ -8,6 +8,22 @@ set -Eeuo pipefail
 # Python 3.12, ROCm 7.2, AMD gfx1151.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Load order (highest precedence first):
+#   1. existing shell env  — already set, respected by all `${VAR:-...}` defaults
+#   2. local.env           — per-host overrides (gitignored)
+#   3. build-manifest.env  — verified-matrix defaults
+LOCAL_ENV_FILE="${PADDLE_LOCAL_ENV:-$ROOT_DIR/local.env}"
+MANIFEST_FILE="${PADDLE_BUILD_MANIFEST:-$ROOT_DIR/build-manifest.env}"
+if [[ -f "$LOCAL_ENV_FILE" ]]; then
+  # shellcheck disable=SC1090
+  source "$LOCAL_ENV_FILE"
+fi
+if [[ -f "$MANIFEST_FILE" ]]; then
+  # shellcheck disable=SC1090
+  source "$MANIFEST_FILE"
+fi
+
 BUILD_ROOT="${PADDLE_BUILD_ROOT:-$HOME/.cache/ledgerlinc/paddle-rocm}"
 SRC_DIR="${PADDLE_SRC_DIR:-$BUILD_ROOT/Paddle}"
 BUILD_DIR="${PADDLE_CMAKE_BUILD_DIR:-$BUILD_ROOT/build-v3.3.1-rocm-amdclang}"
