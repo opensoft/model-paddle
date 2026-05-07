@@ -41,7 +41,7 @@ fi
 
 WHEEL_SHA256="$(sha256sum "$WHEEL_PATH" | awk '{print $1}')"
 WHEEL_BASENAME="$(basename "$WHEEL_PATH")"
-REPO_COMMIT="$(git -C "$ROOT_DIR" rev-parse HEAD)"
+REPO_COMMIT="${REPO_COMMIT:-$(git -C "$ROOT_DIR" rev-parse HEAD)}"
 PADDLE_SOURCE_COMMIT=""
 if [[ -d "$SRC_DIR/.git" ]]; then
   PADDLE_SOURCE_COMMIT="$(git -C "$SRC_DIR" rev-parse HEAD)"
