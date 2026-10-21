@@ -13,7 +13,7 @@ permissions:
 jobs:
   shellcheck:
     name: shellcheck
-    runs-on: ubuntu-latest
+    runs-on: eagle-linux-ubuntu24
     steps:
       - uses: actions/checkout@v4
       - name: Run shellcheck
@@ -28,7 +28,7 @@ jobs:
 
   manifest:
     name: build-manifest sourceable
-    runs-on: ubuntu-latest
+    runs-on: eagle-linux-ubuntu24
     steps:
       - uses: actions/checkout@v4
       - name: Source build-manifest.env and assert vars
@@ -60,7 +60,7 @@ jobs:
 
   detect-host-runs:
     name: detect-host.sh runs (ubuntu-latest, no GPU)
-    runs-on: ubuntu-latest
+    runs-on: eagle-linux-ubuntu24
     steps:
       - uses: actions/checkout@v4
       - name: Run detect-host.sh on a no-GPU runner
@@ -78,7 +78,7 @@ jobs:
 
   patch-applies:
     name: exported patch applies cleanly to upstream Paddle
-    runs-on: ubuntu-latest
+    runs-on: eagle-linux-ubuntu24
     steps:
       - uses: actions/checkout@v4
       - name: Resolve PADDLE_TAG from build-manifest.env
@@ -110,7 +110,7 @@ jobs:
 
   markdown-links:
     name: markdown link check
-    runs-on: ubuntu-latest
+    runs-on: eagle-linux-ubuntu24
     steps:
       - uses: actions/checkout@v4
       - name: Lychee
